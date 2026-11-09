@@ -431,6 +431,9 @@ void StatsManager::SavePadmissScore( const StageStats *pSS, PlayerNumber pn )
 	ADD_FLOAT_OPTION( appearances, APPEARANCE_STEALTH, opts.m_fAppearances );
 	ADD_FLOAT_OPTION( appearances, APPEARANCE_BLINK, opts.m_fAppearances );
 	ADD_FLOAT_OPTION( appearances, APPEARANCE_RANDOMVANISH, opts.m_fAppearances );
+	ADD_FLOAT_OPTION( appearances, APPEARANCE_CONSTANT, opts.m_fAppearances );
+	if ( opts.m_fAppearances[PlayerOptions::APPEARANCE_CONSTANT] != 0.0f )
+		appearances->AppendChild( "ConstantTime", opts.m_fConstantTime );
 
 	XNode *scrolls = mods->AppendChild( "Scrolls" );
 	ADD_FLOAT_OPTION( scrolls, SCROLL_REVERSE, opts.m_fScrolls );

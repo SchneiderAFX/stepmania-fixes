@@ -97,6 +97,16 @@ public:
 	static float GetGlow(const PlayerState* pPlayerState, int iCol, float fYPos, float fPercentFadeToFail, float fYReverseOffsetPixels, float fDrawDistanceBeforeTargetsPixels, float fFadeInPercentOfDrawFar );
 
 	/**
+	 * @brief Get the transparency multiplier (0 to 1) of the Constant appearance for a note.
+	 *
+	 * It depends on the real time left until the note at fNoteBeat must be hit, so it follows
+	 * BPM changes. It is 1 when Constant is off. Multiply it into the alpha and the glow.
+	 * @param pPlayerState the player the note belongs to.
+	 * @param fNoteBeat the beat of the note (for hold bodies, the beat at that point of the body).
+	 * @return the multiplier. */
+	static float GetConstantAlpha(const PlayerState* pPlayerState, float fNoteBeat);
+
+	/**
 	 * @brief Retrieve the current brightness.
 	 *
 	 * Note that this depends on fYOffset.

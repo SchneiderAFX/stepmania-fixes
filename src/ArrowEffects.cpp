@@ -1161,6 +1161,42 @@ float ArrowEffects::GetGlow( const PlayerState* pPlayerState, int iCol, float fY
 	return SCALE( fDistFromHalf, 0, 0.5f, 1.3f, 0 );
 }
 
+static const float CONSTANT_FADE_SECONDS = 0.25f;
+
+/* Constant appearance (DDR A3/WORLD): a note is only visible during the last "constant time"
+ * before it must be hit, then it fades in over CONSTANT_FADE_SECONDS.
+ *
+ * This is decided per note, from the real time left until it is hit, and not from how far
+ * away it is on screen or from the current scroll speed. That matters when the BPM changes:
+ * notes behind a BPM jump are closer in time than they look, so DDR shows them before the
+ * jump reaches the receptors, and a stop does not hide anything by itself. It is a plain
+ * transparency multiplier (no glow), so notes fade in instead of flashing white. */
+float ArrowEffects::GetConstantAlpha( const PlayerState* pPlayerState, float fNoteBeat )
+{
+	const PlayerOptions& options = pPlayerState->m_PlayerOptions.GetCurrent();
+	const float fAmount = options.m_fAppearances[PlayerOptions::APPEARANCE_CONSTANT];
+	const Steps* pSteps = GAMESTATE->m_pCurSteps[pPlayerState->m_PlayerNumber];
+	if( fAmount == 0.0f || pSteps == nullptr || GAMESTATE->m_bInStepEditor )
+		return 1.0f;
+
+	/* Never hand a NaN or infinite beat to the timing data: TimingData::GetElapsedTimeInternal
+	 * only stops when it finds the beat, so such a beat makes it loop forever and the game freezes. */
+	if( !std::isfinite(fNoteBeat) )
+		return 1.0f;
+
+	const float fSongSeconds = pPlayerState->m_Position.m_fMusicSecondsVisible;
+	const float fNoteSeconds = pSteps->GetTimingData()->GetElapsedTimeFromBeat( fNoteBeat );
+	// Seconds of song time pass faster than real time with a music rate.
+	const float fSecondsUntilStep = (fNoteSeconds - fSongSeconds) / GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
+
+	const float fVisibleSeconds = options.m_fConstantTime;
+	float fVisible = SCALE( fSecondsUntilStep, fVisibleSeconds, fVisibleSeconds + CONSTANT_FADE_SECONDS, 1.0f, 0.0f );
+	CLAMP( fVisible, 0.0f, 1.0f );
+
+	// Like the other mods, Constant is tweened: 0 is fully off and 1 fully on.
+	return 1.0f - fAmount * (1.0f - fVisible);
+}
+
 float ArrowEffects::GetBrightness( const PlayerState* pPlayerState, float fNoteBeat )
 {
 	if( GAMESTATE->IsEditing() )

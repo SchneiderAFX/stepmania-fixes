@@ -54,6 +54,14 @@ const RString& ModTimerTypeToString( ModTimerType cat );
 const RString& ModTimerTypeToLocalizedString( ModTimerType cat );
 LuaDeclareType( ModTimerType );
 
+/** @brief Default display time of the Constant appearance, in seconds (DDR WORLD defaults to 1000ms). */
+static const float CONSTANT_TIME_DEFAULT = 1.0f;
+/** @brief Shortest display time accepted by the Constant appearance, in seconds. */
+static const float CONSTANT_TIME_MIN = 0.1f;
+/** @brief Longest display time accepted by the Constant appearance, in seconds.
+ * DDR WORLD offers 100ms to 3000ms in steps of 10ms. */
+static const float CONSTANT_TIME_MAX = 3.0f;
+
 /** @brief Per-player options that are not saved between sessions. */
 class PlayerOptions
 {
@@ -70,6 +78,7 @@ public:
 		m_fMaxScrollBPM(0), m_SpeedfMaxScrollBPM(1.0f),
 		m_fScrollSpeed(1.0f), m_SpeedfScrollSpeed(1.0f),
 		m_fScrollBPM(200), m_SpeedfScrollBPM(1.0f),
+		m_fConstantTime(CONSTANT_TIME_DEFAULT), m_SpeedfConstantTime(1.0f),
 		m_fDark(0), m_SpeedfDark(1.0f),
 		m_fBlind(0), m_SpeedfBlind(1.0f),
 		m_fCover(0), m_SpeedfCover(1.0f),
@@ -284,6 +293,11 @@ public:
 		APPEARANCE_STEALTH, /**< The arrows are not shown at all. */
 		APPEARANCE_BLINK, /**< The arrows blink constantly. */
 		APPEARANCE_RANDOMVANISH, /**< The arrows disappear, and then reappear in a different column. */
+		/**
+		 * DDR A3/WORLD "Constant" appearance. Arrows are only visible during the last
+		 * m_fConstantTime seconds before they reach the receptors, whatever the scroll speed
+		 * (a shorter time hides more of the lane). It does not change the speed mod. */
+		APPEARANCE_CONSTANT,
 		NUM_APPEARANCES
 	};
 	/** @brief The various turn mods. */
@@ -351,6 +365,9 @@ public:
 	float	m_fMaxScrollBPM,		m_SpeedfMaxScrollBPM;
 	float	m_fScrollSpeed,			m_SpeedfScrollSpeed;	// used if !m_bTimeSpacing (xMods)
 	float	m_fScrollBPM,			m_SpeedfScrollBPM;		// used if m_bTimeSpacing (CMod)
+	/** @brief Time in seconds that arrows stay visible before reaching the receptors.
+	 * Only used while m_fAppearances[APPEARANCE_CONSTANT] is active. */
+	float	m_fConstantTime,		m_SpeedfConstantTime;
 	float	m_fAccels[NUM_ACCELS],		m_SpeedfAccels[NUM_ACCELS];
 	float	m_fEffects[NUM_EFFECTS],	m_SpeedfEffects[NUM_EFFECTS];
 	float	m_fAppearances[NUM_APPEARANCES],m_SpeedfAppearances[NUM_APPEARANCES];

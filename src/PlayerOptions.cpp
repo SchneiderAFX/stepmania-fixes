@@ -10,6 +10,7 @@
 #include "Style.h"
 #include "CommonMetrics.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <sstream>
@@ -73,6 +74,7 @@ void PlayerOptions::Init()
 	m_fTimeSpacing = 0;		m_SpeedfTimeSpacing = 1.0f;
 	m_fScrollSpeed = 1.0f;		m_SpeedfScrollSpeed = 1.0f;
 	m_fScrollBPM = CMOD_DEFAULT;		m_SpeedfScrollBPM = 1.0f;
+	m_fConstantTime = CONSTANT_TIME_DEFAULT;	m_SpeedfConstantTime = 1.0f;
 	ZERO( m_fAccels );		ONE( m_SpeedfAccels );
 	ZERO( m_fEffects );		ONE( m_SpeedfEffects );
 	ZERO( m_fAppearances );		ONE( m_SpeedfAppearances );
@@ -137,6 +139,7 @@ void PlayerOptions::Approach( const PlayerOptions& other, float fDeltaSeconds )
 	APPROACH( fScrollSpeed );
 	APPROACH( fMaxScrollBPM );
 	fapproach( m_fScrollBPM, other.m_fScrollBPM, fDeltaSeconds * other.m_SpeedfScrollBPM*150 );
+	APPROACH( fConstantTime );
 	for( int i=0; i<NUM_ACCELS; i++ )
 		APPROACH( fAccels[i] );
 	for( int i=0; i<NUM_EFFECTS; i++ )
@@ -464,6 +467,12 @@ void PlayerOptions::GetMods( std::vector<RString> &AddTo, bool bForceNoteSkin ) 
 	AddPart( AddTo, m_fAppearances[APPEARANCE_STEALTH],		"Stealth" );
 	AddPart( AddTo, m_fAppearances[APPEARANCE_BLINK],			"Blink" );
 	AddPart( AddTo, m_fAppearances[APPEARANCE_RANDOMVANISH],	"RandomVanish" );
+	if( m_fAppearances[APPEARANCE_CONSTANT] != 0 )
+	{
+		// Formatted like "Constant" followed by the display time, e.g. "1000ms ConstantTime".
+		AddPart( AddTo, m_fAppearances[APPEARANCE_CONSTANT],	"Constant" );
+		AddTo.push_back( ssprintf("%.0fms ConstantTime", m_fConstantTime * 1000.0f) );
+	}
 
 	AddPart( AddTo, m_fScrolls[SCROLL_REVERSE],	"Reverse" );
 	AddPart( AddTo, m_fScrolls[SCROLL_SPLIT],		"Split" );
@@ -1026,6 +1035,17 @@ bool PlayerOptions::FromOneModString( const RString &sOneMod, RString &sErrorOut
 	}
 	else if( sBit == "blink" )				SET_FLOAT( fAppearances[APPEARANCE_BLINK] )
 	else if( sBit == "randomvanish" )			SET_FLOAT( fAppearances[APPEARANCE_RANDOMVANISH] )
+	else if( sBit == "constant" )				SET_FLOAT( fAppearances[APPEARANCE_CONSTANT] )
+	else if( sBit == "constanttime" )
+	{
+		// Written as "1000ms constanttime"; "level" already holds the value in seconds.
+		// "no constanttime" (level 0) restores the default display time.
+		if( !std::isfinite(level) || level <= 0.0f )
+			level = CONSTANT_TIME_DEFAULT;
+		level = std::round( level / 0.010f ) * 0.010f;
+		level = std::clamp( level, CONSTANT_TIME_MIN, CONSTANT_TIME_MAX );
+		SET_FLOAT( fConstantTime )
+	}
 	else if( sBit == "turn" && !on )			ZERO( m_bTurns ); /* "no turn" */
 	else if( sBit == "mirror" )				m_bTurns[TURN_MIRROR] = on;
 	else if( sBit == "lrmirror" )				m_bTurns[TURN_LRMIRROR] = on;
@@ -1422,6 +1442,7 @@ bool PlayerOptions::operator==( const PlayerOptions &other ) const
 	COMPARE(m_fScrollSpeed);
 	COMPARE(m_fScrollBPM);
 	COMPARE(m_fMaxScrollBPM);
+	COMPARE(m_fConstantTime);
 	COMPARE(m_fRandomSpeed);
 	COMPARE(m_FailType);
 	COMPARE(m_MinTNSToHideNotes);
@@ -1505,6 +1526,7 @@ PlayerOptions& PlayerOptions::operator=(PlayerOptions const& other)
 	CPY_SPEED(fScrollSpeed);
 	CPY_SPEED(fScrollBPM);
 	CPY_SPEED(fMaxScrollBPM);
+	CPY_SPEED(fConstantTime);
 	CPY_SPEED(fRandomSpeed);
 	CPY(m_FailType);
 	CPY(m_MinTNSToHideNotes);
@@ -1734,6 +1756,8 @@ RString PlayerOptions::GetSavedPrefsString() const
 	SAVE( m_fScrollSpeed );
 	SAVE( m_fScrollBPM );
 	SAVE( m_fMaxScrollBPM );
+	SAVE( m_fAppearances[APPEARANCE_CONSTANT] );
+	SAVE( m_fConstantTime );
 	SAVE( m_fScrolls[SCROLL_REVERSE] );
 	SAVE( m_fPerspectiveTilt );
 	SAVE( m_bTransforms[TRANSFORM_NOHOLDS] );
@@ -1765,6 +1789,8 @@ void PlayerOptions::ResetPrefs( ResetPrefsType type )
 		CPY( m_fScrollSpeed );
 		CPY( m_fScrollBPM );
 		CPY( m_fMaxScrollBPM );
+		CPY( m_fAppearances[APPEARANCE_CONSTANT] );
+		CPY( m_fConstantTime );
 		break;
 	case saved_prefs_invalid_for_course:
 		break;
@@ -1840,6 +1866,8 @@ public:
 	FLOAT_INTERFACE(MaxScrollBPM, MaxScrollBPM, true);
 	FLOAT_INTERFACE(ScrollSpeed, ScrollSpeed, true);
 	FLOAT_INTERFACE(ScrollBPM, ScrollBPM, true);
+	FLOAT_INTERFACE(Constant, Appearances[PlayerOptions::APPEARANCE_CONSTANT], true);
+	FLOAT_INTERFACE(ConstantTime, ConstantTime, true);
 	FLOAT_INTERFACE(Boost, Accels[PlayerOptions::ACCEL_BOOST], true);
 	FLOAT_INTERFACE(Brake, Accels[PlayerOptions::ACCEL_BRAKE], true);
 	FLOAT_INTERFACE(Wave, Accels[PlayerOptions::ACCEL_WAVE], true);
@@ -2401,6 +2429,8 @@ public:
 		ADD_METHOD(MaxScrollBPM);
 		ADD_METHOD(ScrollSpeed);
 		ADD_METHOD(ScrollBPM);
+		ADD_METHOD(Constant);
+		ADD_METHOD(ConstantTime);
 		ADD_METHOD(Boost);
 		ADD_METHOD(Brake);
 		ADD_METHOD(Wave);

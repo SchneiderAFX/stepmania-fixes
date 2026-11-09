@@ -19,6 +19,7 @@
 #include "Sprite.h"
 #include "Style.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -1016,7 +1017,22 @@ void NoteDisplay::DrawHoldPart(std::vector<Sprite*> &vpSpr,
 		float fTexCoordTop		= SCALE(fDistFromTop, 0, unzoomed_frame_height, rect.top, rect.bottom * fVariableZoom);
 		fTexCoordTop += add_to_tex_coord;
 
-		const float fAlpha		= ArrowGetAlphaOrGlow(glow, m_pPlayerState, column_args.column, fYOffset, part_args.percent_fade_to_fail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets);
+		/* The Constant appearance fades by the time left until this point of the hold is hit.
+		 * cur_beat is interpolated from the position and is NaN or infinite when the top and the
+		 * bottom of the part are at the same height, so keep it inside the beats of the part. */
+		float constant_beat= cur_beat;
+		if(std::isfinite(constant_beat))
+		{
+			constant_beat= std::clamp(constant_beat,
+				std::min(part_args.top_beat, part_args.bottom_beat),
+				std::max(part_args.top_beat, part_args.bottom_beat));
+		}
+		else
+		{
+			constant_beat= part_args.top_beat;
+		}
+		const float fAlpha		= ArrowGetAlphaOrGlow(glow, m_pPlayerState, column_args.column, fYOffset, part_args.percent_fade_to_fail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets)
+			* ArrowEffects::GetConstantAlpha(m_pPlayerState, constant_beat);
 		const RageColor color= RageColor(
 			column_args.diffuse.r * color_scale,
 			column_args.diffuse.g * color_scale,
@@ -1277,8 +1293,12 @@ void NoteDisplay::DrawActor(const TapNote& tn, Actor* pActor, NotePart part,
 	float spline_beat= fBeat;
 	if(is_being_held) { spline_beat= column_args.song_beat; }
 
-	const float fAlpha= ArrowEffects::GetAlpha(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets);
-	const float fGlow= ArrowEffects::GetGlow(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets);
+	// The Constant appearance fades the note in by transparency only (1 when it is off).
+	// fBeat is the start of a hold, so its tail has to be judged by the beat where it ends.
+	const float fConstantBeat= (part == NotePart_HoldTail) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
+	const float fConstantAlpha= ArrowEffects::GetConstantAlpha(m_pPlayerState, fConstantBeat);
+	const float fAlpha= ArrowEffects::GetAlpha(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
+	const float fGlow= ArrowEffects::GetGlow(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
 	const RageColor diffuse	= RageColor(
 		column_args.diffuse.r * fColorScale,
 		column_args.diffuse.g * fColorScale,

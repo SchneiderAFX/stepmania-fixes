@@ -4092,6 +4092,15 @@ a,b = options:Boost(5)
 		If the optional second argument is passed, sets the speed at which the transition occurs.
 	</Function>
 	<Function name='Confusion' return='float, float' arguments='float value, float approach_speed'> </Function>
+	<Function name='Constant' return='float, float' arguments='float value, float approach_speed'>
+		The Constant appearance (DDR A3/WORLD).<br />
+		While it is on (1), arrows are only visible during the last ConstantTime seconds before they reach the receptors, whatever the scroll speed. It does not change the speed mod. It is decided per note from the real time left until it is hit, so BPM changes and stops are handled like in DDR: notes behind a BPM jump are shown before the jump reaches the receptors. Notes fade in with transparency only, without glow.<br />
+		In a mod string it is written as 'constant'.
+	</Function>
+	<Function name='ConstantTime' return='float, float' arguments='float value, float approach_speed'>
+		The time, in seconds, that arrows stay visible before reaching the receptors while Constant is on. A shorter time hides more of the lane. The default is 1.0 (1000ms).<br />
+		DDR WORLD offers 0.1 to 3.0 in steps of 0.01; mod strings are clamped to that range. In a mod string it is written like '1000ms constanttime'.
+	</Function>
 	<Function name='ConfusionOffset' return='float, float' arguments='float value, float approach_speed'> </Function>
 	<Function name='ConfusionOffsetn' return= 'float, float' arguments='float value, float approach_speed'>
 		Use 1-16 in place of 'n' to apply ConfusionOffset on a specific column.

@@ -1239,6 +1239,8 @@
 			<Function name='CMod'/>
 			<Function name='Centered'/>
 			<Function name='Confusion'/>
+			<Function name='Constant'/>
+			<Function name='ConstantTime'/>
 			<Function name='ConfusionOffset'/>
 			<Function name='ConfusionOffsetn'/>
 			<Function name='ConfusionX'/>
