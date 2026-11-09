@@ -1020,16 +1020,21 @@ void NoteDisplay::DrawHoldPart(std::vector<Sprite*> &vpSpr,
 		/* The Constant appearance fades by the time left until this point of the hold is hit.
 		 * cur_beat is interpolated from the position and is NaN or infinite when the top and the
 		 * bottom of the part are at the same height, so keep it inside the beats of the part. */
-		float constant_beat= cur_beat;
+		float constant_beat= part_args.constant_top_beat;
+		if(part_args.constant_top_beat != part_args.constant_bottom_beat)
+		{
+			constant_beat= SCALE(fY, part_args.y_top, part_args.y_bottom,
+				part_args.constant_top_beat, part_args.constant_bottom_beat);
+		}
 		if(std::isfinite(constant_beat))
 		{
 			constant_beat= std::clamp(constant_beat,
-				std::min(part_args.top_beat, part_args.bottom_beat),
-				std::max(part_args.top_beat, part_args.bottom_beat));
+				std::min(part_args.constant_top_beat, part_args.constant_bottom_beat),
+				std::max(part_args.constant_top_beat, part_args.constant_bottom_beat));
 		}
 		else
 		{
-			constant_beat= part_args.top_beat;
+			constant_beat= part_args.constant_top_beat;
 		}
 		const float fAlpha		= ArrowGetAlphaOrGlow(glow, m_pPlayerState, column_args.column, fYOffset, part_args.percent_fade_to_fail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets)
 			* ArrowEffects::GetConstantAlpha(m_pPlayerState, constant_beat);
@@ -1086,12 +1091,18 @@ void NoteDisplay::DrawHoldBodyInternal(std::vector<Sprite*>& sprite_top,
 	part_args.y_bottom = y_head;
 	part_args.top_beat = top_beat;
 	part_args.bottom_beat = top_beat;
+	// In reverse the top of the screen is the end of the hold, which matters for Constant.
+	const float constant_top_beat= part_args.reverse_beats ? bottom_beat : top_beat;
+	const float constant_bottom_beat= part_args.reverse_beats ? top_beat : bottom_beat;
+	part_args.constant_top_beat = constant_top_beat;
+	part_args.constant_bottom_beat = constant_top_beat;
 	part_args.wrapping = false;
 	DrawHoldPart(sprite_top, field_args, column_args, part_args, glow, hpt_top);
 	// Draw the body
 	part_args.y_top = y_head;
 	part_args.y_bottom = y_tail;
 	part_args.bottom_beat = bottom_beat;
+	part_args.constant_bottom_beat = constant_bottom_beat;
 	part_args.wrapping = true;
 	DrawHoldPart(sprite_body, field_args, column_args, part_args, glow, hpt_body);
 	// Draw the bottom cap
@@ -1099,6 +1110,7 @@ void NoteDisplay::DrawHoldBodyInternal(std::vector<Sprite*>& sprite_top,
 	part_args.y_top = y_tail + overlap_hack;
 	part_args.y_bottom = tail_plus_bottom + overlap_hack;
 	part_args.top_beat = bottom_beat;
+	part_args.constant_top_beat = constant_bottom_beat;
 	part_args.y_start_pos = std::fmax(part_args.y_start_pos, y_head);
 	part_args.wrapping = false;
 	DrawHoldPart(sprite_bottom, field_args, column_args, part_args, glow, hpt_bottom);
@@ -1137,6 +1149,7 @@ void NoteDisplay::DrawHoldBody(const TapNote& tn,
 	}
 
 	const bool reverse = m_pPlayerState->m_PlayerOptions.GetCurrent().GetReversePercentForColumn(column_args.column) > 0.5f;
+	part_args.reverse_beats = reverse;
 	part_args.flip_texture_vertically = reverse && cache->m_bFlipHoldBodyWhenReverse;
 	if(part_args.flip_texture_vertically)
 	{
@@ -1295,7 +1308,14 @@ void NoteDisplay::DrawActor(const TapNote& tn, Actor* pActor, NotePart part,
 
 	// The Constant appearance fades the note in by transparency only (1 when it is off).
 	// fBeat is the start of a hold, so its tail has to be judged by the beat where it ends.
-	const float fConstantBeat= (part == NotePart_HoldTail) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
+	float fConstantBeat= (part == NotePart_HoldTail) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
+	if((part == NotePart_HoldHead || part == NotePart_HoldTail)
+		&& m_pPlayerState->m_PlayerOptions.GetCurrent().GetReversePercentForColumn(column_args.column) > 0.5f
+		&& !cache->m_bFlipHeadAndTailWhenReverse)
+	{
+		// Without FlipHeadAndTailWhenReverse the head is drawn at the end of the hold in reverse, and the tail at the start.
+		fConstantBeat= (part == NotePart_HoldHead) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
+	}
 	const float fConstantAlpha= ArrowEffects::GetConstantAlpha(m_pPlayerState, fConstantBeat);
 	const float fAlpha= ArrowEffects::GetAlpha(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
 	const float fGlow= ArrowEffects::GetGlow(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
