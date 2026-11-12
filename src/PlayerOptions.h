@@ -54,12 +54,12 @@ const RString& ModTimerTypeToString( ModTimerType cat );
 const RString& ModTimerTypeToLocalizedString( ModTimerType cat );
 LuaDeclareType( ModTimerType );
 
-/** @brief Default display time of the Constant appearance, in seconds (DDR WORLD defaults to 1000ms). */
+/** @brief Default display time of the Constant appearance, in seconds (1000ms by default). */
 static const float CONSTANT_TIME_DEFAULT = 1.0f;
 /** @brief Shortest display time accepted by the Constant appearance, in seconds. */
 static const float CONSTANT_TIME_MIN = 0.1f;
 /** @brief Longest display time accepted by the Constant appearance, in seconds.
- * DDR WORLD offers 100ms to 3000ms in steps of 10ms. */
+ * It goes from 100ms to 3000ms in steps of 10ms. */
 static const float CONSTANT_TIME_MAX = 3.0f;
 
 /** @brief Per-player options that are not saved between sessions. */
@@ -294,7 +294,7 @@ public:
 		APPEARANCE_BLINK, /**< The arrows blink constantly. */
 		APPEARANCE_RANDOMVANISH, /**< The arrows disappear, and then reappear in a different column. */
 		/**
-		 * DDR A3/WORLD "Constant" appearance. Arrows are only visible during the last
+		 * "Constant" appearance (a recreation of the modifier of DDR A3/WORLD). Arrows are only visible during the last
 		 * m_fConstantTime seconds before they reach the receptors, whatever the scroll speed
 		 * (a shorter time hides more of the lane). It does not change the speed mod. */
 		APPEARANCE_CONSTANT,

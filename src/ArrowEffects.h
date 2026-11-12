@@ -96,15 +96,24 @@ public:
 	// AppearanceType.
 	static float GetGlow(const PlayerState* pPlayerState, int iCol, float fYPos, float fPercentFadeToFail, float fYReverseOffsetPixels, float fDrawDistanceBeforeTargetsPixels, float fFadeInPercentOfDrawFar );
 
+	/** @brief Which part of a note the Constant appearance is fading in; each one fades differently. */
+	enum ConstantPart
+	{
+		ConstantPart_Tap,	// taps, mines, lifts, fakes
+		ConstantPart_HoldHead,
+		ConstantPart_HoldBody,	// body, caps and tail of a hold
+	};
+
 	/**
 	 * @brief Get the transparency multiplier (0 to 1) of the Constant appearance for a note.
 	 *
 	 * It depends on the real time left until the note at fNoteBeat must be hit, so it follows
 	 * BPM changes. It is 1 when Constant is off. Multiply it into the alpha and the glow.
 	 * @param pPlayerState the player the note belongs to.
-	 * @param fNoteBeat the beat of the note (for hold bodies, the beat at that point of the body).
+	 * @param fNoteBeat the beat of the note; for every part of a hold, the beat of its head.
+	 * @param part which part of the note is being drawn.
 	 * @return the multiplier. */
-	static float GetConstantAlpha(const PlayerState* pPlayerState, float fNoteBeat);
+	static float GetConstantAlpha(const PlayerState* pPlayerState, float fNoteBeat, ConstantPart part = ConstantPart_Tap);
 
 	/**
 	 * @brief Retrieve the current brightness.

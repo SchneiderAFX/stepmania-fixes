@@ -237,12 +237,8 @@ private:
 		float y_end_pos;
 		float top_beat;
 		float bottom_beat;
-		/** The beats at the top and the bottom of the part on screen, for the Constant
-		 * appearance. In reverse the top of the screen is the end of the hold, so these are
-		 * swapped compared to top_beat and bottom_beat. */
-		float constant_top_beat;
-		float constant_bottom_beat;
-		bool reverse_beats;
+		/** The beat of the hold's head: the Constant appearance times every part of a hold by it. */
+		float constant_head_beat;
 		bool wrapping;
 		bool anchor_to_top;
 		bool flip_texture_vertically;

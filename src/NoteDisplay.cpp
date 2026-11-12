@@ -1017,27 +1017,9 @@ void NoteDisplay::DrawHoldPart(std::vector<Sprite*> &vpSpr,
 		float fTexCoordTop		= SCALE(fDistFromTop, 0, unzoomed_frame_height, rect.top, rect.bottom * fVariableZoom);
 		fTexCoordTop += add_to_tex_coord;
 
-		/* The Constant appearance fades by the time left until this point of the hold is hit.
-		 * cur_beat is interpolated from the position and is NaN or infinite when the top and the
-		 * bottom of the part are at the same height, so keep it inside the beats of the part. */
-		float constant_beat= part_args.constant_top_beat;
-		if(part_args.constant_top_beat != part_args.constant_bottom_beat)
-		{
-			constant_beat= SCALE(fY, part_args.y_top, part_args.y_bottom,
-				part_args.constant_top_beat, part_args.constant_bottom_beat);
-		}
-		if(std::isfinite(constant_beat))
-		{
-			constant_beat= std::clamp(constant_beat,
-				std::min(part_args.constant_top_beat, part_args.constant_bottom_beat),
-				std::max(part_args.constant_top_beat, part_args.constant_bottom_beat));
-		}
-		else
-		{
-			constant_beat= part_args.constant_top_beat;
-		}
+		// The Constant appearance fades the whole body in by the time left until the head is hit.
 		const float fAlpha		= ArrowGetAlphaOrGlow(glow, m_pPlayerState, column_args.column, fYOffset, part_args.percent_fade_to_fail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets)
-			* ArrowEffects::GetConstantAlpha(m_pPlayerState, constant_beat);
+			* ArrowEffects::GetConstantAlpha(m_pPlayerState, part_args.constant_head_beat, ArrowEffects::ConstantPart_HoldBody);
 		const RageColor color= RageColor(
 			column_args.diffuse.r * color_scale,
 			column_args.diffuse.g * color_scale,
@@ -1091,18 +1073,21 @@ void NoteDisplay::DrawHoldBodyInternal(std::vector<Sprite*>& sprite_top,
 	part_args.y_bottom = y_head;
 	part_args.top_beat = top_beat;
 	part_args.bottom_beat = top_beat;
-	// In reverse the top of the screen is the end of the hold, which matters for Constant.
-	const float constant_top_beat= part_args.reverse_beats ? bottom_beat : top_beat;
-	const float constant_bottom_beat= part_args.reverse_beats ? top_beat : bottom_beat;
-	part_args.constant_top_beat = constant_top_beat;
-	part_args.constant_bottom_beat = constant_top_beat;
 	part_args.wrapping = false;
+	/* When the hold body is flipped for reverse, this cap is the end of the hold (the bottom cap
+	 * texture). Like the bottom cap in normal scrolling, it must not be drawn past the head, or it
+	 * keeps showing under the receptors instead of disappearing at them. */
+	const float original_y_end_pos = part_args.y_end_pos;
+	if(part_args.flip_texture_vertically)
+	{
+		part_args.y_end_pos = std::min(part_args.y_end_pos, y_tail);
+	}
 	DrawHoldPart(sprite_top, field_args, column_args, part_args, glow, hpt_top);
+	part_args.y_end_pos = original_y_end_pos;
 	// Draw the body
 	part_args.y_top = y_head;
 	part_args.y_bottom = y_tail;
 	part_args.bottom_beat = bottom_beat;
-	part_args.constant_bottom_beat = constant_bottom_beat;
 	part_args.wrapping = true;
 	DrawHoldPart(sprite_body, field_args, column_args, part_args, glow, hpt_body);
 	// Draw the bottom cap
@@ -1110,7 +1095,6 @@ void NoteDisplay::DrawHoldBodyInternal(std::vector<Sprite*>& sprite_top,
 	part_args.y_top = y_tail + overlap_hack;
 	part_args.y_bottom = tail_plus_bottom + overlap_hack;
 	part_args.top_beat = bottom_beat;
-	part_args.constant_top_beat = constant_bottom_beat;
 	part_args.y_start_pos = std::fmax(part_args.y_start_pos, y_head);
 	part_args.wrapping = false;
 	DrawHoldPart(sprite_bottom, field_args, column_args, part_args, glow, hpt_bottom);
@@ -1149,7 +1133,7 @@ void NoteDisplay::DrawHoldBody(const TapNote& tn,
 	}
 
 	const bool reverse = m_pPlayerState->m_PlayerOptions.GetCurrent().GetReversePercentForColumn(column_args.column) > 0.5f;
-	part_args.reverse_beats = reverse;
+	part_args.constant_head_beat = beat;
 	part_args.flip_texture_vertically = reverse && cache->m_bFlipHoldBodyWhenReverse;
 	if(part_args.flip_texture_vertically)
 	{
@@ -1307,16 +1291,11 @@ void NoteDisplay::DrawActor(const TapNote& tn, Actor* pActor, NotePart part,
 	if(is_being_held) { spline_beat= column_args.song_beat; }
 
 	// The Constant appearance fades the note in by transparency only (1 when it is off).
-	// fBeat is the start of a hold, so its tail has to be judged by the beat where it ends.
-	float fConstantBeat= (part == NotePart_HoldTail) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
-	if((part == NotePart_HoldHead || part == NotePart_HoldTail)
-		&& m_pPlayerState->m_PlayerOptions.GetCurrent().GetReversePercentForColumn(column_args.column) > 0.5f
-		&& !cache->m_bFlipHeadAndTailWhenReverse)
-	{
-		// Without FlipHeadAndTailWhenReverse the head is drawn at the end of the hold in reverse, and the tail at the start.
-		fConstantBeat= (part == NotePart_HoldHead) ? fBeat + NoteRowToBeat(tn.iDuration) : fBeat;
-	}
-	const float fConstantAlpha= ArrowEffects::GetConstantAlpha(m_pPlayerState, fConstantBeat);
+	// fBeat is the head of a hold, and every part of a hold is timed by its head.
+	ArrowEffects::ConstantPart constant_part= ArrowEffects::ConstantPart_Tap;
+	if(part == NotePart_HoldHead) { constant_part= ArrowEffects::ConstantPart_HoldHead; }
+	else if(part == NotePart_HoldTail) { constant_part= ArrowEffects::ConstantPart_HoldBody; }
+	const float fConstantAlpha= ArrowEffects::GetConstantAlpha(m_pPlayerState, fBeat, constant_part);
 	const float fAlpha= ArrowEffects::GetAlpha(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
 	const float fGlow= ArrowEffects::GetGlow(m_pPlayerState, column_args.column, fYOffset, fPercentFadeToFail, m_fYReverseOffsetPixels, field_args.draw_pixels_before_targets, field_args.fade_before_targets) * fConstantAlpha;
 	const RageColor diffuse	= RageColor(

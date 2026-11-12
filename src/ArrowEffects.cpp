@@ -1161,17 +1161,23 @@ float ArrowEffects::GetGlow( const PlayerState* pPlayerState, int iCol, float fY
 	return SCALE( fDistFromHalf, 0, 0.5f, 1.3f, 0 );
 }
 
-static const float CONSTANT_FADE_SECONDS = 0.25f;
-
-/* Constant appearance (DDR A3/WORLD): a note is only visible during the last "constant time"
- * before it must be hit, then it fades in over CONSTANT_FADE_SECONDS.
+/* Constant appearance (a recreation of the Constant modifier of DDR A3/WORLD): with a
+ * display time V, a note is hidden while it is more than V + 0.1 s away and fades in linearly
+ * until it is V - 0.1 s away, so it is fully opaque for the last V - 0.1 s. Freeze heads pop in
+ * during the last 12 ms of that window and their bodies and tails fade in over 188 ms. Every
+ * part of a freeze is timed by its head.
  *
  * This is decided per note, from the real time left until it is hit, and not from how far
  * away it is on screen or from the current scroll speed. That matters when the BPM changes:
- * notes behind a BPM jump are closer in time than they look, so DDR shows them before the
+ * notes behind a BPM jump are closer in time than they look, so they are shown before the
  * jump reaches the receptors, and a stop does not hide anything by itself. It is a plain
  * transparency multiplier (no glow), so notes fade in instead of flashing white. */
-float ArrowEffects::GetConstantAlpha( const PlayerState* pPlayerState, float fNoteBeat )
+static const float CONSTANT_LEAD_SECONDS = 0.1f;
+static const float CONSTANT_TAP_FADE_SECONDS = 0.2f;
+static const float CONSTANT_HOLD_BODY_FADE_SECONDS = 0.188f;
+static const float CONSTANT_HOLD_HEAD_FADE_SECONDS = 0.012f;
+
+float ArrowEffects::GetConstantAlpha( const PlayerState* pPlayerState, float fNoteBeat, ConstantPart part )
 {
 	const PlayerOptions& options = pPlayerState->m_PlayerOptions.GetCurrent();
 	const float fAmount = options.m_fAppearances[PlayerOptions::APPEARANCE_CONSTANT];
@@ -1184,13 +1190,27 @@ float ArrowEffects::GetConstantAlpha( const PlayerState* pPlayerState, float fNo
 	if( !std::isfinite(fNoteBeat) )
 		return 1.0f;
 
-	const float fSongSeconds = pPlayerState->m_Position.m_fMusicSecondsVisible;
-	const float fNoteSeconds = pSteps->GetTimingData()->GetElapsedTimeFromBeat( fNoteBeat );
+	// Each player has their own position (their steps' timing and visual delay), like GetYOffset.
+	const float fSongSeconds = pPlayerState->GetDisplayedPosition().m_fMusicSecondsVisible;
+	const float fNoteSeconds = pPlayerState->GetDisplayedTiming().GetElapsedTimeFromBeat( fNoteBeat );
 	// Seconds of song time pass faster than real time with a music rate.
 	const float fSecondsUntilStep = (fNoteSeconds - fSongSeconds) / GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
 
-	const float fVisibleSeconds = options.m_fConstantTime;
-	float fVisible = SCALE( fSecondsUntilStep, fVisibleSeconds, fVisibleSeconds + CONSTANT_FADE_SECONDS, 1.0f, 0.0f );
+	// Seconds beyond the point where the note is fully visible; at or below 0 it is opaque.
+	const float fPast = fSecondsUntilStep - (options.m_fConstantTime - CONSTANT_LEAD_SECONDS);
+	float fVisible;
+	switch( part )
+	{
+	case ConstantPart_HoldHead:
+		fVisible = 1.0f - (fPast - (CONSTANT_TAP_FADE_SECONDS - CONSTANT_HOLD_HEAD_FADE_SECONDS)) / CONSTANT_HOLD_HEAD_FADE_SECONDS;
+		break;
+	case ConstantPart_HoldBody:
+		fVisible = 1.0f - fPast / CONSTANT_HOLD_BODY_FADE_SECONDS;
+		break;
+	default:
+		fVisible = 1.0f - fPast / CONSTANT_TAP_FADE_SECONDS;
+		break;
+	}
 	CLAMP( fVisible, 0.0f, 1.0f );
 
 	// Like the other mods, Constant is tweened: 0 is fully off and 1 fully on.

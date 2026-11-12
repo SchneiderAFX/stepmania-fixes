@@ -1042,8 +1042,16 @@ bool PlayerOptions::FromOneModString( const RString &sOneMod, RString &sErrorOut
 		// "no constanttime" (level 0) restores the default display time.
 		if( !std::isfinite(level) || level <= 0.0f )
 			level = CONSTANT_TIME_DEFAULT;
-		level = std::round( level / 0.010f ) * 0.010f;
-		level = std::clamp( level, CONSTANT_TIME_MIN, CONSTANT_TIME_MAX );
+		// The time is kept in whole 10 ms steps: it is clamped, then any
+		// odd value to the multiple of 10 that is nearer to the 1000 ms default.
+		long iMs = std::clamp( std::lround(level * 1000.0f), std::lround(CONSTANT_TIME_MIN * 1000.0f), std::lround(CONSTANT_TIME_MAX * 1000.0f) );
+		if( iMs % 10 != 0 )
+		{
+			iMs -= iMs % 10;
+			if( iMs < std::lround(CONSTANT_TIME_DEFAULT * 1000.0f) )
+				iMs += 10;
+		}
+		level = iMs / 1000.0f;
 		SET_FLOAT( fConstantTime )
 	}
 	else if( sBit == "turn" && !on )			ZERO( m_bTurns ); /* "no turn" */
