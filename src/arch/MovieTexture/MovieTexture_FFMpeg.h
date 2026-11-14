@@ -5,7 +5,12 @@
 
 #include "MovieTexture_Generic.h"
 
+#include <atomic>
+#include <condition_variable>
+#include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <mutex>
 
 struct RageSurface;
@@ -17,6 +22,7 @@ namespace avcodec
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 	}
 };
@@ -31,7 +37,6 @@ struct FrameHolder {
 	float frame_delay = 0;
 	bool decoded = false;
 	bool skip = false;
-	std::mutex lock; // Protects the frame as it's being initialized.
 
 	FrameHolder() = default;
 
@@ -84,20 +89,19 @@ public:
 	bool GetFrame(RageSurface* pOut);
 	int DecodeFrame(float fTargetTime);
 
-	// Decode a single frame.  Return -2 on cancel, -1 on error, 0 on EOF, 1 if we have a frame.
+	// Decode a single frame and queue it for display.
+	// Return -2 on cancel, -1 on error, 0 on EOF, 1 if we have a frame.
 	int DecodeNextFrame();
 
-	// Decode the entire movie.
-	// If we let this decode as fast as possible, it could come at the expense
-	// of gameplay performance. Since dropping frames is undesirable, an
-	// artificial rate limit is introduced.
+	// Runs on the decoding thread until the movie is cancelled.
+	// Only a limited number of frames is decoded ahead of the one on screen
+	// (max_queued_frames_), and every frame is freed once it has been shown.
+	// Keeping every decoded frame of the movie took about 1.4 GB for a two
+	// minute 640x360 movie, and many times that for HD movies, which made the
+	// game swap on computers with little memory. When the movie has to start
+	// over (looping, or SetPosition(0)), the file is rewound and decoded again.
 	//
-	// Given that most movies will display at 30fps or 60fps, decoding at a
-	// speed of 1000fps should be more than sufficient to ensure we never
-	// run behind. This rate limiting is only needed in case stepmania is
-	// running on a low performance machine, or the movie is REALLY long.
-	//
-	// Returns 0 on success, -1 on fatal error, -2 on cancel.
+	// Returns -1 on fatal error, -2 on cancel.
 	int DecodeMovie();
 	bool IsCurrentFrameReady();
 
@@ -108,7 +112,7 @@ public:
 
 	float GetTimestamp() const;
 
-	void Cancel() { cancel_ = true; };
+	void Cancel();
 
 	// If the next frame to display had an issue decoding, skip it.
 	bool SkipNextFrame();
@@ -117,13 +121,16 @@ private:
 	void Init();
 	RString OpenCodec();
 
-	// Read a packet and send it to our frame data buffer.
+	// Read a packet into the given frame holder.
 	// Returns -2 on cancel, -1 on error, 0 on EOF, 1 on OK.
-	int SendPacketToBuffer();
+	int SendPacketToBuffer(FrameHolder& holder);
 
-	// Decode frame data from the packet in the buffer.
+	// Decode frame data from the packet in the given frame holder.
 	// Returns -2 on cancel, -1 on error, 0 if the packet is finished.
-	int DecodePacketInBuffer();
+	int DecodePacketInBuffer(FrameHolder& holder);
+
+	// Seek back to the start of the movie, on the decoding thread. Returns false if it failed.
+	bool SeekToStart();
 
 	avcodec::AVStream* av_stream_;
 	avcodec::AVPixelFormat av_pixel_format_;	/* pixel format of output surface */
@@ -131,23 +138,45 @@ private:
 	avcodec::AVCodecContext* av_stream_codec_;
 
 	avcodec::AVFormatContext* av_format_context_;
-	int display_frame_num_;
-	int total_frames_; // Total number of frames in the movie.
+	int total_frames_; // Number of frames in the movie, as reported by the file (only logged).
 
 	unsigned char* av_buffer_;
 	avcodec::AVIOContext* av_io_context_;
 
-	// The movie buffer.
-	std::vector<std::unique_ptr<FrameHolder>> frame_buffer_;
+	// Decoded frames waiting to be shown, oldest first. Filled by the decoding
+	// thread and emptied by the main thread; guarded by queue_mutex_.
+	std::deque<std::unique_ptr<FrameHolder>> frame_queue_;
+	mutable std::mutex queue_mutex_;
+	// Signalled when frames are taken from the queue, on rewind and on cancel.
+	std::condition_variable queue_cv_;
+	// How many decoded frames may wait in the queue; set from the frame size in Open().
+	std::size_t max_queued_frames_;
+	// The decoder reached the end of the file (guarded by queue_mutex_).
+	bool reached_end_ = false;
+	// The main thread asked to start the movie over (guarded by queue_mutex_).
+	bool rewind_pending_ = false;
+	// Increased on every rewind, so a frame decoded before it is not queued after it
+	// (guarded by queue_mutex_).
+	unsigned generation_ = 0;
+	// The generation the decoding thread is working on (decoding thread only).
+	unsigned decode_generation_ = 0;
+	// Frames shown since the movie was opened or rewound (main thread only).
+	int frames_shown_ = 0;
 
 	int current_packet_offset_;
 
 	// 0 = no EOF
 	// 1 = EOF while decoding
+	// Only used by the thread that decodes.
 	int end_of_file_;
 
+	// Timestamp and length of the last decoded frame, to place frames that
+	// have no timestamp of their own (decoding thread only).
+	float last_timestamp_ = 0;
+	float last_frame_delay_ = 0;
+
 	// If true, received a cancel signal from the MovieTexture.
-	bool cancel_ = false;
+	std::atomic<bool> cancel_{false};
 	bool first_frame_ = true;
 };
 

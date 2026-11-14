@@ -67,7 +67,7 @@ RString MovieTexture_Generic::Init()
 			m_failure = true;
 		}
 
-		LOG->Trace("Done decoding video file \"%s\", took %f seconds", GetID().filename.c_str(), timer.Ago());
+		LOG->Trace("Stopped decoding video file \"%s\" after %f seconds", GetID().filename.c_str(), timer.Ago());
 		});
 
 	LOG->Trace("Resolution: %ix%i (%ix%i, %ix%i)",
@@ -83,7 +83,10 @@ MovieTexture_Generic::~MovieTexture_Generic()
 {
 	if (m_pDecoder) {
 		m_pDecoder->Cancel();
-		decoding_thread->join();
+		// There is no decoding thread if Init() failed before starting it.
+		if (decoding_thread && decoding_thread->joinable()) {
+			decoding_thread->join();
+		}
 		m_pDecoder->Close();
 	}
 

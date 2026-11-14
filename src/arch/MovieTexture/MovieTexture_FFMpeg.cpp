@@ -7,9 +7,18 @@
 #include "RageFile.h"
 #include "RageSurface.h"
 
-#include <chrono>
+#include <algorithm>
 #include <cstdint>
 #include <thread>
+
+// Memory allowed for decoded frames waiting to be shown, per movie. The number
+// of frames follows from the frame size, within the limits below: about 90
+// frames (3 s at 30 fps) for a 640x360 movie and 30 frames for a 1080p one.
+static const std::size_t kMovieQueueBytes = 96 * 1024 * 1024;
+static const std::size_t kMinQueuedFrames = 8;
+static const std::size_t kMaxQueuedFrames = 90;
+
+static RString averr_ssprintf(int err, const char* fmt, ...);
 
 static void FixLilEndian()
 {
@@ -142,118 +151,159 @@ MovieDecoder_FFMpeg::~MovieDecoder_FFMpeg()
 	{
 		avcodec::avcodec_free_context(&av_stream_codec_);
 	}
-	frame_buffer_.clear();
+	frame_queue_.clear();
 }
 
 void MovieDecoder_FFMpeg::Init()
 {
 	end_of_file_ = 0;
-	display_frame_num_ = 0;
 	total_frames_ = 0;
 	av_sws_context_ = nullptr;
 	av_io_context_ = nullptr;
 	av_buffer_ = nullptr;
+	max_queued_frames_ = kMinQueuedFrames;
+	last_timestamp_ = 0;
+	last_frame_delay_ = 0;
+	first_frame_ = true;
+
+	// Init() runs before the decoding thread starts and after it has stopped.
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	frame_queue_.clear();
+	reached_end_ = false;
+	rewind_pending_ = false;
+	frames_shown_ = 0;
 }
 
 float MovieDecoder_FFMpeg::GetTimestamp() const
 {
 	// Always display the first frame.
-	if (display_frame_num_ == 0) {
+	if (frames_shown_ == 0) {
 		return 0;
 	}
 
-	// In a logical situation, this means that display is outpacing decoding.
-	if (display_frame_num_ >= static_cast<int>(frame_buffer_.size())) {
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	// Display is outpacing decoding.
+	if (frame_queue_.empty()) {
 		return 0;
 	}
-	return frame_buffer_[display_frame_num_]->frame_timestamp;
+	return frame_queue_.front()->frame_timestamp;
 }
 
-bool MovieDecoder_FFMpeg::IsCurrentFrameReady() {
-	// We're displaying faster than decoding. Do not even try to display the frame.
-	if (display_frame_num_ >= static_cast<int>(frame_buffer_.size())) {
+bool MovieDecoder_FFMpeg::IsCurrentFrameReady()
+{
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	// We're displaying faster than decoding, or the movie has ended.
+	if (frame_queue_.empty()) {
 		return false;
 	}
-	// If the whole movie is decoded, then the frame is definitely ready.
-	if (end_of_file_) {
+	if (frame_queue_.front()->skip || frames_shown_ == 0) {
 		return true;
 	}
-
-
-	std::lock_guard<std::mutex> lock(frame_buffer_[display_frame_num_]->lock);
-	if (frame_buffer_[display_frame_num_]->skip) {
-		LOG->Info("Frame %i not decoded, skipping...", display_frame_num_);
-		return true;
-	}
-	if (!frame_buffer_[display_frame_num_]->decoded) {
-		LOG->Info("Frame %i not decoded and was not skipped, total frames: %i", display_frame_num_, total_frames_);
-	}
-	return frame_buffer_[display_frame_num_]->decoded;
+	// Only show a frame once it is known whether it is the last one, so that
+	// GetFrame() can tell the movie texture to loop.
+	return frame_queue_.size() >= 2 || reached_end_;
 }
 
 int MovieDecoder_FFMpeg::DecodeNextFrame()
 {
-	// Add in a new FrameBuffer entry, and lock it immediately
-	frame_buffer_.emplace_back(std::make_unique<FrameHolder>());
-	std::unique_lock<std::mutex> lock(frame_buffer_.back()->lock);
-	int status = SendPacketToBuffer();
+	auto holder = std::make_unique<FrameHolder>();
+	int status = SendPacketToBuffer(*holder);
 	if (status < 0) {
 		return status;
 	}
 	if (end_of_file_) {
-		// Release the mutex.
-		lock.unlock();
-
-		frame_buffer_.pop_back(); // Don't display an EoF frame.
-		// If we had to approximate the number of frames, set the actual
-		// total number of frames. This is benign even if we did have an
-		// accurate frame count at the start.
-		total_frames_ = frame_buffer_.size();
+		// Don't queue an EoF frame.
+		std::lock_guard<std::mutex> lock(queue_mutex_);
+		if (decode_generation_ == generation_) {
+			reached_end_ = true;
+		}
+		return 0;
 	}
-	status = DecodePacketInBuffer();
+
+	status = DecodePacketInBuffer(*holder);
 	if (first_frame_) {
 		first_frame_ = false;
+	}
+	if (status < 0) {
+		return status;
+	}
+
+	// The compressed data is not needed any more; only the picture is kept until it is shown.
+	avcodec::av_packet_unref(holder->packet);
+
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	// A rewind while this frame was being decoded makes it stale.
+	if (decode_generation_ == generation_) {
+		frame_queue_.push_back(std::move(holder));
 	}
 	return status;
 }
 
 int MovieDecoder_FFMpeg::DecodeMovie()
 {
-	using std::chrono::operator""ms;
+	// The first frame was decoded and drawn already, by MovieTexture_Generic::Init().
+	while (true)
+	{
+		bool rewind = false;
+		{
+			std::unique_lock<std::mutex> lock(queue_mutex_);
+			// Sleep while enough frames are waiting to be shown, or after the last frame.
+			queue_cv_.wait(lock, [this]() {
+				return cancel_ || rewind_pending_ ||
+					(!reached_end_ && frame_queue_.size() < max_queued_frames_);
+			});
+			if (cancel_) {
+				return -2;
+			}
+			if (rewind_pending_) {
+				rewind_pending_ = false;
+				rewind = true;
+			}
+			decode_generation_ = generation_;
+		}
 
-	// The first frame expected to be decoded and drawn already,
-	// that is handled by MovieTexture_Generic::Init().
-	int frame_num = 0;
-	while (!end_of_file_) {
-		// This wake up time could be tied to the RageTimer, but as it doesn't
-		// need to sync with other parts of ITGm, using chrono is fine.
-		// The 1ms time here is arbitrary, and means that the game will decode
-		// at a maximum speed of 1 frame per ms (or 1000 fps).
-		auto wake_up = std::chrono::steady_clock::now() + 1ms;
-
-		int status = DecodeNextFrame();
+		if (rewind && !SeekToStart())
+		{
+			// Keep showing the last frame instead of looping.
+			std::lock_guard<std::mutex> lock(queue_mutex_);
+			if (decode_generation_ == generation_) {
+				reached_end_ = true;
+			}
+			continue;
+		}
 
 		// If cancelled (quitting a song, scrolling the banner), or fatal error,
 		// stop decoding.
+		int status = DecodeNextFrame();
 		if (status < 0) {
 			return status;
 		}
-
-		frame_num++;
-
-		// This means when opening the file, less frames were detected than
-		// there actually are. Increment to keep up so we don't end the video
-		// early during display.
-		if (frame_num - 1 > total_frames_) {
-			total_frames_++;
-		}
-
-		std::this_thread::sleep_until(wake_up);
 	}
-	return 0;
 }
 
-int MovieDecoder_FFMpeg::SendPacketToBuffer()
+bool MovieDecoder_FFMpeg::SeekToStart()
+{
+	std::int64_t start = av_stream_->start_time != AV_NOPTS_VALUE ? av_stream_->start_time : 0;
+	int ret = avcodec::av_seek_frame(av_format_context_, av_stream_->index, start, AVSEEK_FLAG_BACKWARD);
+	if (ret < 0) {
+		// Some files can only be rewound by bytes.
+		ret = avcodec::av_seek_frame(av_format_context_, av_stream_->index, 0, AVSEEK_FLAG_BYTE);
+	}
+	if (ret < 0) {
+		LOG->Warn("%s", averr_ssprintf(ret, "Couldn't rewind the movie").c_str());
+		return false;
+	}
+
+	avcodec::avcodec_flush_buffers(av_stream_codec_);
+	end_of_file_ = 0;
+	current_packet_offset_ = -1;
+	first_frame_ = true;
+	last_timestamp_ = 0;
+	last_frame_delay_ = 0;
+	return true;
+}
+
+int MovieDecoder_FFMpeg::SendPacketToBuffer(FrameHolder& holder)
 {
 	if (cancel_) {
 		return -2;
@@ -264,7 +314,7 @@ int MovieDecoder_FFMpeg::SendPacketToBuffer()
 
 	while (true)
 	{
-		int ret = avcodec::av_read_frame(av_format_context_, frame_buffer_.back()->packet);
+		int ret = avcodec::av_read_frame(av_format_context_, holder.packet);
 		/* XXX: why is avformat returning AVERROR_NOMEM on EOF? */
 		if (ret < 0)
 		{
@@ -273,17 +323,17 @@ int MovieDecoder_FFMpeg::SendPacketToBuffer()
 			return 0;
 		}
 
-		if (frame_buffer_.back()->packet->stream_index == av_stream_->index)
+		if (holder.packet->stream_index == av_stream_->index)
 		{
 			current_packet_offset_ = 0;
 			return 1;
 		}
 		/* It's not for the video stream; ignore it. */
-		avcodec::av_packet_unref(frame_buffer_.back()->packet);
+		avcodec::av_packet_unref(holder.packet);
 	}
 }
 
-int MovieDecoder_FFMpeg::DecodePacketInBuffer() {
+int MovieDecoder_FFMpeg::DecodePacketInBuffer(FrameHolder& holder) {
 	if (cancel_) {
 		return -2;
 	}
@@ -291,22 +341,22 @@ int MovieDecoder_FFMpeg::DecodePacketInBuffer() {
 		return 0; /* no packet */
 	}
 
-	while (end_of_file_ == 0 && current_packet_offset_ <= frame_buffer_.back()->packet->size)
+	while (end_of_file_ == 0 && current_packet_offset_ <= holder.packet->size)
 	{
 		/* If we have no data on the first frame, just return EOF; passing an empty packet
 		 * to avcodec_decode_video in this case is crashing it.  However, passing an empty
 		 * packet is normal with B-frames, to flush.  This may be unnecessary in newer
 		 * versions of avcodec, but I'm waiting until a new stable release to upgrade. */
-		if (frame_buffer_.back()->packet->size == 0 && first_frame_) {
+		if (holder.packet->size == 0 && first_frame_) {
 			return 0; /* eof */
 		}
 
 		/* Hack: we need to send size = 0 to flush frames at the end, but we have
 		 * to give it a buffer to read from since it tries to read anyway. */
-		frame_buffer_.back()->packet->data = frame_buffer_.back()->packet->size ? frame_buffer_.back()->packet->data : nullptr;
-		int len = frame_buffer_.back()->packet->size;
-		avcodec::avcodec_send_packet(av_stream_codec_, frame_buffer_.back()->packet);
-		int avcodec_return = avcodec::avcodec_receive_frame(av_stream_codec_, frame_buffer_.back()->frame);
+		holder.packet->data = holder.packet->size ? holder.packet->data : nullptr;
+		int len = holder.packet->size;
+		avcodec::avcodec_send_packet(av_stream_codec_, holder.packet);
+		int avcodec_return = avcodec::avcodec_receive_frame(av_stream_codec_, holder.frame);
 
 		if (len < 0)
 		{
@@ -319,53 +369,56 @@ int MovieDecoder_FFMpeg::DecodePacketInBuffer() {
 		if (avcodec_return != 0)
 		{
 			LOG->Warn(
-				"Frame number %i not successfully decoded into buffer. avcodec_receive_frame status: %i",
-				static_cast<int>(frame_buffer_.size() - 1),
+				"Frame not successfully decoded into buffer. avcodec_receive_frame status: %i",
 				avcodec_return);
 			continue;
 		}
 
-		if (frame_buffer_.back()->frame->pkt_dts != AV_NOPTS_VALUE)
+		if (holder.frame->pkt_dts != AV_NOPTS_VALUE)
 		{
-			frame_buffer_.back()->frame_timestamp = (float)(frame_buffer_.back()->frame->pkt_dts * av_q2d(av_stream_->time_base));
+			holder.frame_timestamp = (float)(holder.frame->pkt_dts * av_q2d(av_stream_->time_base));
 		}
 		else
 		{
 			/* If the timestamp is zero, this frame is to be played at the
 			 * time of the last frame plus the length of the last frame. */
 			if (!first_frame_) {
-				frame_buffer_.back()->frame_timestamp += frame_buffer_[frame_buffer_.size() - 2]->frame_delay;
+				holder.frame_timestamp = last_timestamp_ + last_frame_delay_;
 			}
 			else {
-				frame_buffer_.back()->frame_timestamp = 0;
+				holder.frame_timestamp = 0;
 			}
 		}
 
 		// Length of this frame, only used as a fallback for getting the frame
 		// timestamp above.
-		frame_buffer_.back()->frame_delay = (float)av_q2d(av_stream_->time_base);
-		frame_buffer_.back()->frame_delay += frame_buffer_.back()->frame->repeat_pict * (frame_buffer_.back()->frame_delay * 0.5f);
-		frame_buffer_.back()->decoded = true;
+		holder.frame_delay = (float)av_q2d(av_stream_->time_base);
+		holder.frame_delay += holder.frame->repeat_pict * (holder.frame_delay * 0.5f);
+		holder.decoded = true;
 
+		last_timestamp_ = holder.frame_timestamp;
+		last_frame_delay_ = holder.frame_delay;
 		return 1;
 	}
 
 	// This if statement means the packet did not decode correctly. This is not
 	// necessarily fatal for video playback, but out of caution the frame should
 	// be skipped.
-	if (!frame_buffer_.back()->decoded) {
-		frame_buffer_.back()->skip = true;
+	if (!holder.decoded) {
+		holder.skip = true;
 	}
 
 	return 0; /* packet done */
 }
 
 bool MovieDecoder_FFMpeg::SkipNextFrame() {
-	if (display_frame_num_ > (total_frames_ - 1)) {
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	if (frame_queue_.empty()) {
 		return true;
 	}
-	if (frame_buffer_[display_frame_num_]->skip) {
-		display_frame_num_++;
+	if (frame_queue_.front()->skip) {
+		frame_queue_.pop_front();
+		queue_cv_.notify_all();
 		return true;
 	}
 	return false;
@@ -394,18 +447,34 @@ bool MovieDecoder_FFMpeg::GetFrame(RageSurface* pSurface)
 		}
 	}
 
+	// Take the frame out of the queue: it is freed once it has been drawn, and
+	// the decoding thread may decode another one meanwhile.
+	std::unique_ptr<FrameHolder> holder;
+	bool last_frame = false;
+	{
+		std::lock_guard<std::mutex> lock(queue_mutex_);
+		if (frame_queue_.empty()) {
+			return false;
+		}
+		holder = std::move(frame_queue_.front());
+		frame_queue_.pop_front();
+		last_frame = frame_queue_.empty() && reached_end_;
+		queue_cv_.notify_all();
+	}
+
 	avcodec::sws_scale(av_sws_context_,
-		frame_buffer_[display_frame_num_]->frame->data, frame_buffer_[display_frame_num_]->frame->linesize, 0, GetHeight(),
+		holder->frame->data, holder->frame->linesize, 0, GetHeight(),
 		pict.data, pict.linesize);
 
-	// Don't advance the frame number past the (potential) end of the buffer.
-	// This can happen if display is outpacing decoding, or if we're at the
-	// end of file.
-	if (display_frame_num_ >= (total_frames_ - 1)) {
-		return end_of_file_;
-	}
-	display_frame_num_++;
-	return false;
+	++frames_shown_;
+	return last_frame;
+}
+
+void MovieDecoder_FFMpeg::Cancel()
+{
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	cancel_ = true;
+	queue_cv_.notify_all();
 }
 
 static RString averr_ssprintf(int err, const char* fmt, ...)
@@ -506,6 +575,17 @@ RString MovieDecoder_FFMpeg::Open(RString sFile)
 	}
 	LOG->Trace("Number of frames detected: %i", total_frames_);
 
+	// How many decoded frames may wait to be shown: as many as fit in kMovieQueueBytes.
+	int frame_bytes = avcodec::av_image_get_buffer_size(av_stream_codec_->pix_fmt, GetWidth(), GetHeight(), 1);
+	if (frame_bytes <= 0) {
+		frame_bytes = GetWidth() * GetHeight() * 4;
+	}
+	max_queued_frames_ = kMinQueuedFrames;
+	if (frame_bytes > 0) {
+		max_queued_frames_ = std::clamp(kMovieQueueBytes / static_cast<std::size_t>(frame_bytes), kMinQueuedFrames, kMaxQueuedFrames);
+	}
+	LOG->Trace("Frames decoded ahead: up to %i", static_cast<int>(max_queued_frames_));
+
 	return RString();
 }
 
@@ -554,7 +634,15 @@ void MovieDecoder_FFMpeg::Close()
 
 void MovieDecoder_FFMpeg::Rewind()
 {
-	display_frame_num_ = 0;
+	// The frames are not kept after they are shown, so the decoding thread
+	// seeks back to the start of the file and decodes the movie again.
+	std::lock_guard<std::mutex> lock(queue_mutex_);
+	frame_queue_.clear();
+	reached_end_ = false;
+	rewind_pending_ = true;
+	++generation_;
+	frames_shown_ = 0;
+	queue_cv_.notify_all();
 }
 
 RageSurface* MovieDecoder_FFMpeg::CreateCompatibleSurface(int iTextureWidth, int iTextureHeight, bool bPreferHighColor, MovieDecoderPixelFormatYCbCr& fmtout)
