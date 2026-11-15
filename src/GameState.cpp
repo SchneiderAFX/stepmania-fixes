@@ -142,6 +142,8 @@ GameState::GameState() :
 {
 	g_pImpl = new GameStateImpl;
 
+	m_bBothAtOnce = false;
+
 	m_pCurStyle.Set(nullptr);
 	FOREACH_PlayerNumber(rpn)
 	{

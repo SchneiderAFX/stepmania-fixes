@@ -113,6 +113,9 @@ public:
 	BroadcastOnChange<int>			m_iCoins;
 	bool			m_bMultiplayer;
 	int				m_iNumMultiplayerNoteFields;
+	/** @brief Debug option "Both at once": while true, player 1's step buttons
+	 * also step player 2's notefield during gameplay, so one controller plays both sides. */
+	bool			m_bBothAtOnce;
 	bool DifficultiesLocked() const;
 	bool ChangePreferredDifficultyAndStepsType( PlayerNumber pn, Difficulty dc, StepsType st );
 	bool ChangePreferredDifficulty( PlayerNumber pn, int dir );

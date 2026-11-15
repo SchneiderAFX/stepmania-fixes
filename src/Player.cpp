@@ -826,6 +826,20 @@ void Player::SendComboMessages( unsigned int iOldCombo, unsigned int iOldMissCom
 	}
 }
 
+/* "Both at once" (debug menu): player 1's controller also plays player 2's side.
+ * Besides P2's own buttons, P2's columns must also treat the matching buttons on
+ * controller 1 as held (holds, rolls, mines, pressed receptors). */
+static void AddBothAtOnceInputs( std::vector<GameInput> &GameI, PlayerNumber pn )
+{
+	if( !GAMESTATE->m_bBothAtOnce || pn != PLAYER_2 || !GAMESTATE->IsHumanPlayer(PLAYER_1) )
+		return;
+
+	const std::size_t iNumInputs = GameI.size();
+	for( std::size_t i = 0; i < iNumInputs; ++i )
+		if( GameI[i].controller == GameController_2 )
+			GameI.push_back( GameInput( GameController_1, GameI[i].button ) );
+}
+
 void Player::Update( float fDeltaTime )
 {
 	const RageTimer now;
@@ -975,6 +989,7 @@ void Player::Update( float fDeltaTime )
 		// TODO: Remove use of PlayerNumber.
 		std::vector<GameInput> GameI;
 		GAMESTATE->GetCurrentStyle(GetPlayerState()->m_PlayerNumber)->StyleInputToGameInput( col, m_pPlayerState->m_PlayerNumber, GameI );
+		AddBothAtOnceInputs( GameI, m_pPlayerState->m_PlayerNumber );
 
 		bool bIsHoldingButton= INPUTMAPPER->IsBeingPressed(GameI);
 
@@ -1079,6 +1094,7 @@ void Player::Update( float fDeltaTime )
 				PlayerNumber pn = m_pPlayerState->m_PlayerNumber;
 				std::vector<GameInput> input;
 				GAMESTATE->GetCurrentStyle(pn)->StyleInputToGameInput(track, pn, input);
+				AddBothAtOnceInputs( input, pn );
 
 				tn.result.bHeld = INPUTMAPPER->IsBeingPressed(input, m_pPlayerState->m_mp);
 			}
@@ -1348,6 +1364,7 @@ void Player::UpdateHoldNotes( int iSongRow, float fDeltaTime, std::vector<TrackR
 			{
 				std::vector<GameInput> GameI;
 				GAMESTATE->GetCurrentStyle(GetPlayerState()->m_PlayerNumber)->StyleInputToGameInput( iTrack, pn, GameI );
+				AddBothAtOnceInputs( GameI, pn );
 
 				bIsHoldingButton &= INPUTMAPPER->IsBeingPressed(GameI, m_pPlayerState->m_mp);
 			}
@@ -2879,6 +2896,7 @@ void Player::CrossedRows( int iLastRowCrossed, const RageTimer &now )
 					PlayerNumber pn = m_pPlayerState->m_PlayerNumber;
 					std::vector<GameInput> GameI;
 					GAMESTATE->GetCurrentStyle(GetPlayerState()->m_PlayerNumber)->StyleInputToGameInput( iTrack, pn, GameI );
+					AddBothAtOnceInputs( GameI, pn );
 					if( PREFSMAN->m_fPadStickSeconds > 0.f )
 					{
 						for(std::size_t i= 0; i < GameI.size(); ++i)
@@ -2907,6 +2925,7 @@ void Player::CrossedRows( int iLastRowCrossed, const RageTimer &now )
 				PlayerNumber pn = m_pPlayerState->m_PlayerNumber;
 				std::vector<GameInput> GameI;
 				GAMESTATE->GetCurrentStyle(GetPlayerState()->m_PlayerNumber)->StyleInputToGameInput( iTrack, pn, GameI );
+				AddBothAtOnceInputs( GameI, pn );
 				if( PREFSMAN->m_fPadStickSeconds > 0.0f )
 				{
 					for(std::size_t i= 0; i < GameI.size(); ++i)

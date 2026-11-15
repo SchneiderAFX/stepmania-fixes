@@ -2552,6 +2552,22 @@ bool ScreenGameplay::Input( const InputEventPlus &input )
 				case GameButtonType_Step:
 					if( iCol != -1 )
 						pi.m_pPlayer->Step( iCol, -1, input.DeviceI.ts, false, bRelease );
+
+					// "Both at once" (debug menu): player 1's controller also plays
+					// player 2's side, so a single person can play both sides.
+					if( GAMESTATE->m_bBothAtOnce && iCol != -1 && input.pn == PLAYER_1 &&
+						GAMESTATE->IsHumanPlayer(PLAYER_2) &&
+						GAMESTATE->m_pPlayerState[PLAYER_2]->m_PlayerOptions.GetCurrent().m_fPlayerAutoPlay == 0 )
+					{
+						InputEventPlus other = input;
+						other.pn = PLAYER_2;
+						other.GameI = GameInput( GameController_2, input.GameI.button );
+						int iColOther = GAMESTATE->GetCurrentStyle(PLAYER_2)->GameInputToColumn( other.GameI );
+						PlayerInfo &piOther = GetPlayerInfoForInput( other );
+						// In shared-notefield modes both players map to the same PlayerInfo; don't step it twice.
+						if( iColOther != -1 && &piOther != &pi )
+							piOther.m_pPlayer->Step( iColOther, -1, input.DeviceI.ts, false, bRelease );
+					}
 					return true;
 				}
 			}

@@ -594,6 +594,7 @@ static LocalizedString VOLUME_DOWN		( "ScreenDebugOverlay", "Volume Down" );
 static LocalizedString UPTIME			( "ScreenDebugOverlay", "Uptime" );
 static LocalizedString FORCE_CRASH		( "ScreenDebugOverlay", "Force Crash" );
 static LocalizedString SLOW			( "ScreenDebugOverlay", "Slow" );
+static LocalizedString BOTH_AT_ONCE	( "ScreenDebugOverlay", "Both at once" );
 static LocalizedString CPU				( "ScreenDebugOverlay", "CPU" );
 static LocalizedString SONG			( "ScreenDebugOverlay", "Song" );
 static LocalizedString MACHINE			( "ScreenDebugOverlay", "Machine" );
@@ -751,6 +752,17 @@ class DebugLineLightsDebug : public IDebugLine
 	virtual void DoAndLog( RString &sMessageOut )
 	{
 		PREFSMAN->m_bDebugLights.Set( !PREFSMAN->m_bDebugLights );
+		IDebugLine::DoAndLog( sMessageOut );
+	}
+};
+
+class DebugLineBothAtOnce : public IDebugLine
+{
+	virtual RString GetDisplayTitle() { return BOTH_AT_ONCE.GetValue(); }
+	virtual bool IsEnabled() { return GAMESTATE->m_bBothAtOnce; }
+	virtual void DoAndLog( RString &sMessageOut )
+	{
+		GAMESTATE->m_bBothAtOnce = !GAMESTATE->m_bBothAtOnce;
 		IDebugLine::DoAndLog( sMessageOut );
 	}
 };
@@ -1337,6 +1349,7 @@ DECLARE_ONE( DebugLineCoinMode );
 DECLARE_ONE( DebugLineSlow );
 DECLARE_ONE( DebugLineHalt );
 DECLARE_ONE( DebugLineLightsDebug );
+DECLARE_ONE( DebugLineBothAtOnce );
 DECLARE_ONE( DebugLineMonkeyInput );
 DECLARE_ONE( DebugLineStats );
 DECLARE_ONE( DebugLineVsync );

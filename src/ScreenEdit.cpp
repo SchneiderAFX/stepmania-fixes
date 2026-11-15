@@ -106,6 +106,7 @@ AutoScreenMessage( SM_BackFromStopChange );
 AutoScreenMessage( SM_BackFromDelayChange );
 AutoScreenMessage( SM_BackFromTickcountChange );
 AutoScreenMessage( SM_BackFromComboChange );
+AutoScreenMessage( SM_BackFromTimeSignatureChange );
 AutoScreenMessage( SM_BackFromLabelChange );
 AutoScreenMessage( SM_BackFromWarpChange );
 AutoScreenMessage( SM_BackFromSpeedPercentChange );
@@ -1076,6 +1077,9 @@ static MenuDef g_TimingDataInformation(
 		true, EditMode_Full, true, true, 0, nullptr ),
 	MenuRowDef(ScreenEdit::delay,
 		"Edit delay",
+		true, EditMode_Full, true, true, 0, nullptr ),
+	MenuRowDef(ScreenEdit::time_signature,
+		"Edit time signature",
 		true, EditMode_Full, true, true, 0, nullptr ),
 	MenuRowDef(ScreenEdit::label,
 		"Edit label",
@@ -3735,6 +3739,18 @@ void ScreenEdit::HandleScreenMessage( const ScreenMessage SM )
 
 		SetDirty( true );
 	}
+	else if ( SM == SM_BackFromTimeSignatureChange && !ScreenTextEntry::s_bCancelledLast )
+	{
+		int iNum, iDen;
+
+		// Accepts "4/4", "4 / 4", "7/8", etc. Both values must be positive.
+		if (sscanf(ScreenTextEntry::s_sLastAnswer.c_str(), " %d / %d ", &iNum, &iDen) == 2
+			&& iNum > 0 && iDen > 0)
+		{
+			GetAppropriateTimingForUpdate().AddSegment( TimeSignatureSegment(GetRow(), iNum, iDen) );
+			SetDirty( true );
+		}
+	}
 	else if ( SM == SM_BackFromTickcountChange && !ScreenTextEntry::s_bCancelledLast )
 	{
 		int iTick = StringToInt( ScreenTextEntry::s_sLastAnswer );
@@ -4765,6 +4781,10 @@ void ScreenEdit::DisplayTimingMenu()
 	g_TimingDataInformation.rows[bpm].SetOneUnthemedChoice( std::to_string(pTime.GetBPMAtRow( row ) ) );
 	g_TimingDataInformation.rows[stop].SetOneUnthemedChoice( std::to_string(pTime.GetStopAtRow( row ) ) ) ;
 	g_TimingDataInformation.rows[delay].SetOneUnthemedChoice( std::to_string(pTime.GetDelayAtRow( row ) ) );
+	{
+		const TimeSignatureSegment *pSig = pTime.GetTimeSignatureSegmentAtRow( row );
+		g_TimingDataInformation.rows[time_signature].SetOneUnthemedChoice( ssprintf("%d / %d", pSig->GetNum(), pSig->GetDen() ) );
+	}
 
 	g_TimingDataInformation.rows[label].SetOneUnthemedChoice( pTime.GetLabelAtRow( row ).c_str() );
 	g_TimingDataInformation.rows[tickcount].SetOneUnthemedChoice( ssprintf("%d", pTime.GetTickcountAtRow( row ) ) );
@@ -5785,6 +5805,7 @@ static LocalizedString ENTER_BEAT_0_OFFSET			( "ScreenEdit", "Enter the offset f
 static LocalizedString ENTER_BPM_VALUE				( "ScreenEdit", "Enter a new BPM value." );
 static LocalizedString ENTER_STOP_VALUE				( "ScreenEdit", "Enter a new Stop value." );
 static LocalizedString ENTER_DELAY_VALUE			( "ScreenEdit", "Enter a new Delay value." );
+static LocalizedString ENTER_TIME_SIGNATURE_VALUE		( "ScreenEdit", "Enter a new Time Signature." );
 static LocalizedString ENTER_TICKCOUNT_VALUE			( "ScreenEdit", "Enter a new Tickcount value." );
 static LocalizedString ENTER_COMBO_VALUE			( "ScreenEdit", "Enter a new Combo value." );
 static LocalizedString ENTER_LABEL_VALUE			( "ScreenEdit", "Enter a new Label value." );
@@ -5832,6 +5853,17 @@ void ScreenEdit::HandleTimingDataInformationChoice( TimingDataInformationChoice 
 			10
 		);
 		break;
+	case time_signature:
+	{
+		const TimeSignatureSegment *pSig = GetAppropriateTiming().GetTimeSignatureSegmentAtBeat( GetBeat() );
+		ScreenTextEntry::TextEntry(
+			SM_BackFromTimeSignatureChange,
+			ENTER_TIME_SIGNATURE_VALUE,
+			ssprintf( "%d/%d", pSig->GetNum(), pSig->GetDen() ),
+			7
+			);
+		break;
+	}
 	case tickcount:
 		ScreenTextEntry::TextEntry(
 			SM_BackFromTickcountChange,
