@@ -760,6 +760,31 @@ public:
 		return 1;
 	}
 	static int GetHash( T* p, lua_State *L ) { lua_pushnumber( L, p->GetHash() ); return 1; }
+	/* Number of rows that contain at least one judgable mine. With AvoidMineIncrementsCombo
+	 * each of these rows adds 1 to the combo (a DDR shock arrow, MMMM, is one row), so a theme
+	 * can add this to TapsAndHolds to get the maximum possible combo. */
+	static int GetMineRows( T* p, lua_State *L )
+	{
+		NoteData nd;
+		p->GetNoteData( nd );
+		const TimingData *td = p->GetTimingData();
+		int iRows = 0;
+		FOREACH_NONEMPTY_ROW_ALL_TRACKS( nd, r )
+		{
+			if( !td->IsJudgableAtRow( r ) )
+				continue;
+			for( int t = 0; t < nd.GetNumTracks(); ++t )
+			{
+				if( nd.GetTapNote( t, r ).type == TapNoteType_Mine )
+				{
+					++iRows;
+					break;
+				}
+			}
+		}
+		lua_pushnumber( L, iRows );
+		return 1;
+	}
 	// untested
 	/*
 	static int GetSMNoteData( T* p, lua_State *L )
@@ -870,6 +895,7 @@ public:
 		ADD_METHOD( HasAttacks );
 		ADD_METHOD( GetRadarValues );
 		ADD_METHOD( GetTimingData );
+		ADD_METHOD( GetMineRows );
 		ADD_METHOD( GetChartName );
 		//ADD_METHOD( GetSMNoteData );
 		ADD_METHOD( GetStepsType );

@@ -406,9 +406,6 @@ void ScoreKeeperNormal::HandleTapScore( const TapNote &tn )
 
 		}
 
-		if( tns == TNS_AvoidMine && m_AvoidMineIncrementsCombo )
-			HandleComboInternal( 1, 0, 0 );
-
 		Message msg( "ScoreChanged" );
 		msg.SetParam( "PlayerNumber", m_pPlayerState->m_PlayerNumber );
 		msg.SetParam( "MultiPlayer", m_pPlayerState->m_mp );
@@ -416,6 +413,13 @@ void ScoreKeeperNormal::HandleTapScore( const TapNote &tn )
 	}
 
 	AddTapScore( tns );
+}
+
+void ScoreKeeperNormal::HandleAvoidedMineRow()
+{
+	// One combo per row of avoided mines (a DDR shock arrow "MMMM" counts once).
+	if( m_AvoidMineIncrementsCombo )
+		HandleComboInternal( 1, 0, 0 );
 }
 
 void ScoreKeeperNormal::HandleHoldCheckpointScore( const NoteData &nd, int iRow, int iNumHoldsHeldThisRow, int iNumHoldsMissedThisRow )

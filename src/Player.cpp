@@ -2677,13 +2677,9 @@ void Player::UpdateTapNotesMissedOlderThan( float fMissIfOlderThanSeconds )
 
 		if( tn.type == TapNoteType_Mine )
 		{
-			tn.result.tns = TNS_AvoidMine;
-			/* The only real way to tell if a mine has been scored is if it has disappeared
-			 * but this only works for hit mines so update the scores for avoided mines here. */
-			if( m_pPrimaryScoreKeeper )
-				m_pPrimaryScoreKeeper->HandleTapScore( tn );
-			if( m_pSecondaryScoreKeeper )
-				m_pSecondaryScoreKeeper->HandleTapScore( tn );
+			/* Mines are judged in UpdateJudgedRows(), as soon as their own timing
+			 * window has passed, instead of waiting for the largest window of all. */
+			continue;
 		}
 		else
 		{
@@ -2759,6 +2755,20 @@ void Player::UpdateJudgedRows()
 		std::set<RageSound *> setSounds;
 		NoteData::all_tracks_iterator iter = *m_pIterUnjudgedMineRows;	// copy
 		int iLastSeenRow = -1;
+		// A mine can only be hit within its own timing window, so it counts as avoided
+		// as soon as that window has passed. (Mines are not judged in the step editor.)
+		int iAvoidMineBeforeRow = 0;
+		if( !GAMESTATE->m_bInStepEditor )
+		{
+			const float fMineWindowSeconds = GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * GetWindowSeconds(TW_Mine) + m_fMaxInputLatencySeconds;
+			TimingData::GetBeatArgs beat_info;
+			beat_info.elapsed_time = m_pPlayerState->m_Position.m_fMusicSeconds - fMineWindowSeconds;
+			m_Timing->GetBeatAndBPSFromElapsedTime( beat_info );
+			iAvoidMineBeforeRow = BeatToNoteRow( beat_info.beat );
+			if( beat_info.freeze_out && !beat_info.delay_out )
+				iAvoidMineBeforeRow++;
+		}
+		int iLastAvoidedMineRow = -1;
 		for( ; !iter.IsAtEnd()  &&  iter.Row() <= iEndRow; ++iter )
 		{
 			int iRow = iter.Row();
@@ -2780,6 +2790,37 @@ void Player::UpdateJudgedRows()
 			if( !bMineNotHidden )
 				continue;
 
+			if( tn.result.tns == TNS_None && iRow < iAvoidMineBeforeRow )
+			{
+				tn.result.tns = TNS_AvoidMine;
+
+				// One combo per row of mines, so a DDR shock arrow (MMMM) adds 1, not 4.
+				if( iRow != iLastAvoidedMineRow )
+				{
+					iLastAvoidedMineRow = iRow;
+					if( m_pPrimaryScoreKeeper )
+						m_pPrimaryScoreKeeper->HandleAvoidedMineRow();
+					if( m_pSecondaryScoreKeeper )
+						m_pSecondaryScoreKeeper->HandleAvoidedMineRow();
+					LOG->Trace( "AvoidMine: row %d counted once for the combo (combo is now %u)", iRow, m_pPlayerStageStats ? m_pPlayerStageStats->m_iCurCombo : 0u );
+					/* Record the new combo like a normal judged row does, otherwise a combo that ends
+					 * in mines (e.g. a song ending in MMMM) never reaches the max combo / combo list. */
+					if( m_pPlayerStageStats )
+					{
+						m_pPlayerStageStats->m_iMaxCombo = std::max( m_pPlayerStageStats->m_iMaxCombo, m_pPlayerStageStats->m_iCurCombo );
+						m_pPlayerStageStats->UpdateComboList( STATSMAN->m_CurStageStats.m_fStepsSeconds, false );
+					}
+				}
+
+				/* The only real way to tell if a mine has been scored is if it has disappeared
+				 * but this only works for hit mines so update the scores for avoided mines here. */
+				if( m_pPrimaryScoreKeeper )
+					m_pPrimaryScoreKeeper->HandleTapScore( tn );
+				if( m_pSecondaryScoreKeeper )
+					m_pSecondaryScoreKeeper->HandleTapScore( tn );
+				SetMineJudgment( TNS_AvoidMine, iter.Track() );
+			}
+
 			switch( tn.result.tns )
 			{
 			DEFAULT_FAIL( tn.result.tns );
@@ -2787,8 +2828,8 @@ void Player::UpdateJudgedRows()
 				bAllJudged = false;
 				continue;
 			case TNS_AvoidMine:
-				SetMineJudgment( tn.result.tns , iter.Track() );
-				tn.result.bHidden= true;
+				/* Avoided mines were already scored above. They are not hidden, so they keep
+				 * scrolling past the receptors (like DDR shock arrows) instead of vanishing. */
 				continue;
 			case TNS_HitMine:
 				SetMineJudgment( tn.result.tns , iter.Track() );

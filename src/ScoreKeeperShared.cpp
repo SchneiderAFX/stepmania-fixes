@@ -53,6 +53,13 @@ void ScoreKeeperShared::HandleTapScore( const TapNote &tn )
 	ScoreKeeperNormal::HandleTapScore( tn );
 }
 
+void ScoreKeeperShared::HandleAvoidedMineRow()
+{
+	if( m_pPlayerState->m_PlayerNumber != GAMESTATE->GetMasterPlayerNumber() )
+		return;
+	ScoreKeeperNormal::HandleAvoidedMineRow();
+}
+
 void ScoreKeeperShared::HandleTapRowScore( const NoteData &nd, int iRow )
 {
 	if( m_pPlayerState->m_PlayerNumber != GAMESTATE->GetMasterPlayerNumber() )

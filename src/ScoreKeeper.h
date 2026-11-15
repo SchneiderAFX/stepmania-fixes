@@ -52,6 +52,9 @@ public:
 
 	// HandleTap* is called before HandleTapRow*
 	virtual void HandleTapScore( const TapNote & ) { }
+	// Called once for each row of mines that were all avoided (e.g. a DDR shock arrow
+	// "MMMM" counts as a single row), instead of once per mine.
+	virtual void HandleAvoidedMineRow() { }
 	virtual void HandleTapRowScore( const NoteData & /* nd */, int /* iRow */ ) { }
 	virtual void HandleHoldScore( const TapNote & ) { }
 	virtual void HandleHoldActiveSeconds( float /* fMusicSecondsHeld */ ) { }
