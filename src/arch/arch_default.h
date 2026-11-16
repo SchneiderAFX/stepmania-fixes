@@ -9,7 +9,9 @@
 #include "MemoryCard/MemoryCardDriverThreaded_Windows.h"
 #define DEFAULT_INPUT_DRIVER_LIST "DirectInput,Pump,Para"
 #define DEFAULT_MOVIE_DRIVER_LIST "FFMpeg,Null"
-#define DEFAULT_SOUND_DRIVER_LIST "WaveOut,DirectSound-sw,WDMKS,Null"
+/* DirectSound-sw first: WaveOut's reported latency is less accurate, which
+ * can leave the music audibly out of sync with the notes. */
+#define DEFAULT_SOUND_DRIVER_LIST "DirectSound-sw,WaveOut,WDMKS,Null"
 
 
 #elif defined(MACOSX)

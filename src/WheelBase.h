@@ -83,6 +83,9 @@ protected:
 	virtual WheelItemBase *MakeItem() = 0;
 	virtual void UpdateSwitch();
 	virtual bool MoveSpecific(int n);
+	/* Called after the items are rebuilt, to have the images of the items
+	 * around the cursor read ahead of time. */
+	virtual void PrefetchItemImages() {}
 	void SetPositions();
 
 	int FirstVisibleIndex();

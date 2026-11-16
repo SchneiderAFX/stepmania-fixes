@@ -79,6 +79,7 @@ RageSoundDriver_DSound_Software::RageSoundDriver_DSound_Software()
 {
 	m_bShutdownMixerThread = false;
 	m_pPCM = nullptr;
+	m_iSampleRate = 0;
 }
 
 RString RageSoundDriver_DSound_Software::Init()

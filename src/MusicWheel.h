@@ -67,6 +67,7 @@ protected:
 	bool SelectModeMenuItem();
 
 	virtual void UpdateSwitch();
+	virtual void PrefetchItemImages();
 
 	std::vector<MusicWheelItemData *> & getWheelItemsData(SortOrder so);
 	void readyWheelItemsData(SortOrder so);

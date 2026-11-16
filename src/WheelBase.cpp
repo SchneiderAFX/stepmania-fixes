@@ -491,6 +491,8 @@ void WheelBase::RebuildWheelItems( int iDist )
 		WheelItemBase *pDisplay = items[i];
 		pDisplay->LoadFromWheelItemData( pData, iIndex, m_iSelection==iIndex, i );
 	}
+
+	PrefetchItemImages();
 }
 
 WheelItemBaseData* WheelBase::LastSelected()

@@ -6039,6 +6039,7 @@ local spr = Def.Sprite{
 	<Function name='LoadFromCached' return='void' arguments='string sType, string sPath'>
 		Loads the image of type <code>sType</code> from the cache based on <code>sPath</code>.
 		Internal types: "Banner", "Background", "CDTitle", "Jacket", "CDImage" and "Disc".
+		Only the types listed in the <code>ImageCache</code> metric of the <code>[Common]</code> group are cached. See <Link class='ENUM' function='ImageCacheMode' /> for how the cached images are kept in memory.
 	</Function>
 	<Function name='LoadFromCurrentSongBackground' theme='_fallback' return='void' arguments=''>
 		[02 Sprite.lua] Loads the background from the current Song or the first Trail entry.
@@ -6884,6 +6885,15 @@ end
 <Enum name='HorizAlign'>
 	<Description>
 		Horizontal alignment. See <Link class='Actor' function='horizalign' />.
+	</Description>
+</Enum>
+<Enum name='ImageCacheMode'>
+	<Description>
+		Possible values for the <code>ImageCache</code> preference, which controls the cache of reduced-quality images (banners, jackets, backgrounds and the other types listed in the <code>ImageCache</code> metric of the <code>[Common]</code> group) used by <Link class='Sprite' function='LoadFromCached' /> and the music wheel.<br />
+		<code>Off</code>: cached images are not kept in memory, so the places that use the cache show no image. The engine picks this mode on systems with very little memory.<br />
+		<code>LowResPreload</code> (default): cached images are read from disk the first time they are used and kept in memory up to the <code>ImageCacheMemoryMB</code> preference (default 128). When the budget is full, the images used least recently are dropped from memory and read again the next time they are needed. The music wheel reads the images of the songs around the cursor ahead of time on a background thread, so scrolling does not wait for the disk. Setting <code>ImageCacheMemoryMB</code> to 0 loads every cached image into memory when the songs are loaded, as older versions did; that uses much more memory and startup time with large song libraries.<br />
+		<code>LowResLoadOnDemand</code>: cached images are loaded for a song group when a screen asks for them, and unloaded afterwards.<br />
+		<code>Full</code>: banners are loaded at full size, and the full-size song images are loaded into memory when the songs are loaded.
 	</Description>
 </Enum>
 <Enum name='ProfileSortOrder'>

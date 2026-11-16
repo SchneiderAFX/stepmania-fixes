@@ -22,6 +22,7 @@
 #include "CommonMetrics.h"
 #include "MessageManager.h"
 #include "LocalizedString.h"
+#include "ImageCache.h"
 
 #include <cmath>
 #include <cstddef>
@@ -1265,6 +1266,45 @@ void MusicWheel::ChangeMusic( int iDist )
 	// If we're moving automatically, don't play this; it'll be called in Update.
 	if(!IsMoving())
 		m_soundChangeMusic.Play(true);
+}
+
+/* Have the cached images (banner, jacket, background...) of the songs around the
+ * cursor read on a background thread, nearest first, so the items that scroll
+ * into view next find them in memory. Only images in the image cache are read. */
+void MusicWheel::PrefetchItemImages()
+{
+	const int iNumItems = (int)m_CurWheelItemData.size();
+	if( iNumItems == 0 )
+		return;
+
+	// The visible items and as many again on each side.
+	const int iRadius = std::min( NUM_WHEEL_ITEMS, iNumItems / 2 );
+	std::vector<RString> vsPaths;
+	for( int iDist = 0; iDist <= iRadius; ++iDist )
+	{
+		for( int iSign = 1; iSign >= -1; iSign -= 2 )
+		{
+			if( iDist == 0 && iSign < 0 )
+				continue;
+			int iIndex = m_iSelection + iDist * iSign;
+			wrap( iIndex, iNumItems );
+			const MusicWheelItemData *pData = GetCurWheelItemData( iIndex );
+			if( pData->m_pSong != nullptr )
+			{
+				const Song *pSong = pData->m_pSong;
+				vsPaths.push_back( pSong->GetJacketPath() );
+				vsPaths.push_back( pSong->GetBannerPath() );
+				vsPaths.push_back( pSong->GetBackgroundPath() );
+				vsPaths.push_back( pSong->GetCDImagePath() );
+				vsPaths.push_back( pSong->GetDiscPath() );
+			}
+			else if( pData->m_pCourse != nullptr )
+			{
+				vsPaths.push_back( pData->m_pCourse->GetBannerPath() );
+			}
+		}
+	}
+	IMAGECACHE->Prefetch( vsPaths );
 }
 
 

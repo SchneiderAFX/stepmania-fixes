@@ -5,6 +5,8 @@
 
 #include "RageTexture.h"
 
+#include <vector>
+
 class LoadingWindow;
 /** @brief Maintains a cache of reduced-quality images. */
 class ImageCache
@@ -22,14 +24,25 @@ public:
 	void Demand( RString sImageDir );
 	void Undemand( RString sImageDir );
 
+	/* Read the cached images of these source paths into memory on a background
+	 * thread, so that LoadCachedImage finds them without touching the disk.
+	 * Replaces any previous request that hasn't been read yet; nearest first.
+	 * Does nothing unless the cache is loaded on use (see IsLoadedOnUse). */
+	void Prefetch( const std::vector<RString> &vsImagePaths );
+
 	void OutputStats() const;
 
 	bool delay_save_cache;
 
 private:
 	static RString GetImageCachePath( RString sImageDir, RString sImagePath );
+	/* True when cached images are read from disk the first time they're used
+	 * and kept within a memory budget, instead of all being loaded at startup. */
+	static bool IsLoadedOnUse();
+	RString GetCacheFileFor( const RString &sImageDir, const RString &sImagePath ) const;
 	void UnloadAllImages();
 	void CacheImageInternal( RString sImageDir, RString sImagePath );
+	void StopPrefetchThread();
 
 	IniFile ImageData;
 };
