@@ -1161,7 +1161,7 @@ float ArrowEffects::GetGlow( const PlayerState* pPlayerState, int iCol, float fY
 	return SCALE( fDistFromHalf, 0, 0.5f, 1.3f, 0 );
 }
 
-/* Constant appearance (a recreation of the Constant modifier of DDR A3/WORLD): with a
+/* Constant appearance (inspired by DDR WORLD): with a
  * display time V, a note is hidden while it is more than V + 0.1 s away and fades in linearly
  * until it is V - 0.1 s away, so it is fully opaque for the last V - 0.1 s. Freeze heads pop in
  * during the last 12 ms of that window and their bodies and tails fade in over 188 ms. Every

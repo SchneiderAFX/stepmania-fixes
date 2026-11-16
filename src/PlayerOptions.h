@@ -294,7 +294,7 @@ public:
 		APPEARANCE_BLINK, /**< The arrows blink constantly. */
 		APPEARANCE_RANDOMVANISH, /**< The arrows disappear, and then reappear in a different column. */
 		/**
-		 * "Constant" appearance (a recreation of the modifier of DDR A3/WORLD). Arrows are only visible during the last
+		 * "Constant" appearance (inspired by DDR WORLD). Arrows are only visible during the last
 		 * m_fConstantTime seconds before they reach the receptors, whatever the scroll speed
 		 * (a shorter time hides more of the lane). It does not change the speed mod. */
 		APPEARANCE_CONSTANT,

@@ -300,6 +300,14 @@ enum TimingWindow
 	TW_Hold,
 	TW_Roll,
 	TW_Checkpoint,
+	/** Used only when the theme sets the [Player] metric IndependentMissWindow:
+	 * a note becomes a miss once it is this old, whatever the other windows are. */
+	TW_Miss,
+	/** Used only when the theme sets the [Player] metric ShockArrowJudgment:
+	 * how long before and after a shock arrow (a row of mines on every column)
+	 * its window opens and closes. */
+	TW_ShockEarly,
+	TW_ShockLate,
 	NUM_TimingWindow,
 	TimingWindow_Invalid,
 };

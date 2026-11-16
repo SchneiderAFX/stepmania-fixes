@@ -141,6 +141,16 @@ void TimingWindowSecondsInit( std::size_t /*TimingWindow*/ i, RString &sNameOut,
 		case TW_Checkpoint: // similar to TW_Hold, but a little more strict/accurate to Pump play.
 			defaultValueOut = 0.1664f;
 			break;
+		// The windows below are only used when a theme turns their mode on
+		// (see IndependentMissWindow and ShockArrowJudgment); the theme is
+		// expected to set them.
+		case TW_Miss: // same as W5
+			defaultValueOut = 0.180f;
+			break;
+		case TW_ShockEarly: // same as mines
+		case TW_ShockLate:
+			defaultValueOut = 0.090f;
+			break;
 		default:
 			FAIL_M(ssprintf("Invalid timing window: %i", static_cast<int>(i)));
 	}
@@ -193,6 +203,25 @@ ThemeMetric<bool> REQUIRE_STEP_ON_HOLD_HEADS	( "Player", "RequireStepOnHoldHeads
  * If set to true, the Player must step on a mine for it to blow up.
  * If set to false, merely holding your foot down as the mine approaches will suffice. */
 ThemeMetric<bool> REQUIRE_STEP_ON_MINES	( "Player", "RequireStepOnMines" );
+/**
+ * @brief Does a note become a miss after its own window (TimingWindowSecondsMiss)?
+ *
+ * If set to false (the old behavior), a note is a miss once it is older than the
+ * largest of all the timing windows, holds and rolls included.
+ * If set to true, it is a miss once it is older than TimingWindowSecondsMiss, so the
+ * hold, roll and other windows no longer move the miss. */
+ThemeMetric<bool> INDEPENDENT_MISS_WINDOW	( "Player", "IndependentMissWindow" );
+/**
+ * @brief Are shock arrows judged as one O.K. / N.G.?
+ *
+ * A shock arrow is a row with a mine on every column.
+ * If set to false (the old behavior), each of its mines is judged like any mine.
+ * If set to true, the row's window opens TimingWindowSecondsShockEarly before it and
+ * closes TimingWindowSecondsShockLate after it. It is O.K. (TNS_AvoidMine) as soon as no
+ * column is pressed inside the window, and N.G. (TNS_HitMine) if a column is still
+ * pressed when the window closes. Stepping on it is not judged. The row sends one
+ * Judgment message with ShockArrow = true, and changes the life and score once. */
+ThemeMetric<bool> SHOCK_ARROW_JUDGMENT	( "Player", "ShockArrowJudgment" );
 //ThemeMetric<bool> HOLD_TRIGGERS_TAP_NOTES	( "Player", "HoldTriggersTapNotes" ); // parastar stuff; leave in though
 /**
  * @brief Does repeatedly stepping on a roll to keep it alive increment the combo?
@@ -273,6 +302,7 @@ Player::Player( NoteData &nd, bool bVisibleParts ) : m_NoteData(nd)
 	m_pIterUncrossedRows = nullptr;
 	m_pIterUnjudgedRows = nullptr;
 	m_pIterUnjudgedMineRows = nullptr;
+	m_iFirstUnjudgedShockRow = 0;
 
 	m_bPaused = false;
 	m_bDelay = false;
@@ -802,6 +832,8 @@ void Player::Load()
 
 	SAFE_DELETE( m_pIterUnjudgedMineRows );
 	m_pIterUnjudgedMineRows = new NoteData::all_tracks_iterator( m_NoteData.GetTapNoteRangeAllTracks(iNoteRow, MAX_NOTE_ROW ) );
+
+	m_iFirstUnjudgedShockRow = iNoteRow;
 }
 
 void Player::SendComboMessages( unsigned int iOldCombo, unsigned int iOldMissCombo )
@@ -1203,10 +1235,14 @@ void Player::Update( float fDeltaTime )
 	// Check for completely judged rows.
 	UpdateJudgedRows();
 
-	// Check for TapNote misses
 	if (!GAMESTATE->m_bInStepEditor)
 	{
-		UpdateTapNotesMissedOlderThan( GetMaxStepDistanceSeconds() );
+		// Judge shock arrows as a whole row, before their mines can be counted as avoided.
+		if( SHOCK_ARROW_JUDGMENT )
+			UpdateShockArrows();
+
+		// Check for TapNote misses
+		UpdateTapNotesMissedOlderThan( GetMissDistanceSeconds() );
 	}
 	// process transforms that are waiting to be applied
 	ApplyWaitingTransforms();
@@ -1897,6 +1933,9 @@ int Player::GetClosestNoteDirectional( int col, int iStartRow, int iEndRow, bool
 				break;
 			if( !bAllowGraded && tn.result.tns != TNS_None )
 				break;
+			// A step is never meant for a shock arrow; let it find the notes around it.
+			if( tn.type == TapNoteType_Mine && SHOCK_ARROW_JUDGMENT && IsShockRow(begin->first) )
+				break;
 
 			return begin->first;
 		} while(0);
@@ -2288,6 +2327,11 @@ void Player::Step( int col, int row, const RageTimer &tm, bool bHeld, bool bRele
 		DEBUG_ASSERT( iter!= m_NoteData.end(col) );
 		pTN = &iter->second;
 
+		// Shock arrows are not judged by steps; UpdateShockArrows() judges the whole row.
+		const bool bShockArrow = pTN->type == TapNoteType_Mine && SHOCK_ARROW_JUDGMENT && IsShockRow( iRowOfOverlappingNoteOrRow );
+		if( bShockArrow && m_pPlayerState->m_PlayerController != PC_HUMAN )
+			return;
+
 		switch( m_pPlayerState->m_PlayerController )
 		{
 		case PC_HUMAN:
@@ -2295,7 +2339,7 @@ void Player::Step( int col, int row, const RageTimer &tm, bool bHeld, bool bRele
 			{
 			case TapNoteType_Mine:
 				// Stepped too close to mine?
-				if(!bRelease &&
+				if(!bShockArrow && !bRelease &&
 					(!REQUIRE_STEP_ON_MINES || REQUIRE_STEP_ON_MINES == !bHeld ) &&
 					fSecondsFromExact <= GetWindowSeconds(TW_Mine))
 					score = TNS_HitMine;
@@ -2693,6 +2737,175 @@ void Player::UpdateTapNotesMissedOlderThan( float fMissIfOlderThanSeconds )
 	}
 }
 
+bool Player::IsShockRow( int iRow ) const
+{
+	const int iNumTracks = m_NoteData.GetNumTracks();
+	if( iNumTracks <= 0 )
+		return false;
+	for( int t = 0; t < iNumTracks; ++t )
+	{
+		if( m_NoteData.GetTapNote(t, iRow).type != TapNoteType_Mine )
+			return false;
+	}
+	return true;
+}
+
+bool Player::IsAnyColumnPressed()
+{
+	// Computer players never stand on the panels.
+	if( m_pPlayerState->m_PlayerController != PC_HUMAN )
+		return false;
+
+	const PlayerNumber pn = m_pPlayerState->m_PlayerNumber;
+	for( int t = 0; t < m_NoteData.GetNumTracks(); ++t )
+	{
+		std::vector<GameInput> GameI;
+		GAMESTATE->GetCurrentStyle(pn)->StyleInputToGameInput( t, pn, GameI );
+		AddBothAtOnceInputs( GameI, pn );
+		if( INPUTMAPPER->IsBeingPressed(GameI, m_pPlayerState->m_mp) )
+			return true;
+	}
+	return false;
+}
+
+void Player::UpdateShockArrows()
+{
+	const float fRate = GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate;
+	const float fNow = m_pPlayerState->m_Position.m_fMusicSeconds;
+	const float fEarly = GetWindowSeconds(TW_ShockEarly) * fRate;
+	const float fLate = GetWindowSeconds(TW_ShockLate) * fRate;
+
+	// Only rows whose window has opened can be decided.
+	const int iLastOpenRow = BeatToNoteRow( m_Timing->GetBeatFromElapsedTime(fNow + fEarly) );
+	if( iLastOpenRow < m_iFirstUnjudgedShockRow )
+		return;
+
+	bool bPressedKnown = false;
+	bool bPressed = false;
+	bool bAllDecided = true;
+	int iLastSeenRow = -1;
+	NoteData::all_tracks_iterator iter = m_NoteData.GetTapNoteRangeAllTracks( m_iFirstUnjudgedShockRow, iLastOpenRow + 1 );
+	for( ; !iter.IsAtEnd(); ++iter )
+	{
+		const int iRow = iter.Row();
+		if( iRow == iLastSeenRow )
+			continue;
+		iLastSeenRow = iRow;
+
+		const TapNote &tn = *iter;
+		const bool bPending = tn.type == TapNoteType_Mine && tn.result.tns == TNS_None &&
+			!tn.result.bHidden && m_Timing->IsJudgableAtRow(iRow) && IsShockRow(iRow);
+		if( bPending )
+		{
+			const float fNoteSeconds = m_Timing->GetElapsedTimeFromBeat( NoteRowToBeat(iRow) );
+			if( fNow >= fNoteSeconds - fEarly )
+			{
+				if( !bPressedKnown )
+				{
+					bPressed = IsAnyColumnPressed();
+					bPressedKnown = true;
+				}
+				// O.K. as soon as nothing is pressed inside the window; N.G. if
+				// something is still pressed when the window closes.
+				if( !bPressed )
+					JudgeShockRow( iRow, TNS_AvoidMine );
+				else if( fNow > fNoteSeconds + fLate )
+					JudgeShockRow( iRow, TNS_HitMine );
+				else
+					bAllDecided = false;
+			}
+			else
+			{
+				bAllDecided = false;
+			}
+		}
+
+		if( bAllDecided )
+			m_iFirstUnjudgedShockRow = iRow + 1;
+	}
+}
+
+void Player::JudgeShockRow( int iRow, TapNoteScore tns )
+{
+	TapNote *pFirst = nullptr;
+	for( int t = 0; t < m_NoteData.GetNumTracks(); ++t )
+	{
+		NoteData::iterator iter = m_NoteData.FindTapNote( t, iRow );
+		if( iter == m_NoteData.end(t) )
+			continue;
+		TapNote &tn = iter->second;
+		tn.result.tns = tns;
+		if( tns == TNS_HitMine )
+		{
+			// A hit mine explodes and disappears; avoided mines keep scrolling past the
+			// receptors, like the other avoided mines.
+			tn.result.bHidden = true;
+			if( m_pNoteField )
+				m_pNoteField->DidTapNote( t, tns, false );
+		}
+		if( pFirst == nullptr )
+			pFirst = &tn;
+	}
+	if( pFirst == nullptr )
+		return;
+
+	// An O.K. adds to the combo once per row, like any row of avoided mines.
+	if( tns == TNS_AvoidMine )
+	{
+		if( m_pPrimaryScoreKeeper )
+			m_pPrimaryScoreKeeper->HandleAvoidedMineRow();
+		if( m_pSecondaryScoreKeeper )
+			m_pSecondaryScoreKeeper->HandleAvoidedMineRow();
+		if( m_pPlayerStageStats )
+		{
+			m_pPlayerStageStats->m_iMaxCombo = std::max( m_pPlayerStageStats->m_iMaxCombo, m_pPlayerStageStats->m_iCurCombo );
+			m_pPlayerStageStats->UpdateComboList( STATSMAN->m_CurStageStats.m_fStepsSeconds, false );
+		}
+	}
+
+	// The score and combo count the row once, before the judgment message reports the combo.
+	if( m_pPrimaryScoreKeeper )
+		m_pPrimaryScoreKeeper->HandleTapScore( *pFirst );
+	if( m_pSecondaryScoreKeeper )
+		m_pSecondaryScoreKeeper->HandleTapScore( *pFirst );
+
+	// One judgment for the whole row, not one per mine.
+	SetMineJudgment( tns, 0, true );
+
+	if( tns == TNS_HitMine )
+	{
+		if( pFirst->iKeysoundIndex >= 0 && pFirst->iKeysoundIndex < (int) m_vKeysounds.size() )
+		{
+			m_vKeysounds[pFirst->iKeysoundIndex].Stop();
+			m_vKeysounds[pFirst->iKeysoundIndex].Play(false);
+		}
+		else if( g_bEnableMineSoundPlayback )
+		{
+			m_soundMine.Stop();
+			m_soundMine.Play(false);
+		}
+
+		// Same effects as a hit mine, applied once.
+		if( m_pPlayerState->m_PlayerOptions.GetCurrent().m_bTransforms[PlayerOptions::TRANSFORM_ATTACKMINES] )
+		{
+			Attack attMineAttack;
+			attMineAttack.sModifiers = ApplyRandomAttack();
+			attMineAttack.fStartSecond = ATTACK_STARTS_NOW;
+			attMineAttack.fSecsRemaining = ATTACK_RUN_TIME_MINE;
+			m_pPlayerState->LaunchAttack( attMineAttack );
+		}
+		else
+		{
+			ChangeLife( tns );
+		}
+
+		if( m_pScoreDisplay )
+			m_pScoreDisplay->OnJudgment( tns );
+		if( m_pSecondaryScoreDisplay )
+			m_pSecondaryScoreDisplay->OnJudgment( tns );
+	}
+}
+
 void Player::UpdateJudgedRows()
 {
 	// Look ahead far enough to catch any rows judged early.
@@ -2789,6 +3002,14 @@ void Player::UpdateJudgedRows()
 			bool bMineNotHidden = tn.type == TapNoteType_Mine && !tn.result.bHidden;
 			if( !bMineNotHidden )
 				continue;
+
+			// With ShockArrowJudgment, UpdateShockArrows() decides shock arrows: one still held
+			// down must not count as avoided just because the mine window has passed.
+			if( tn.result.tns == TNS_None && SHOCK_ARROW_JUDGMENT && IsShockRow(iRow) )
+			{
+				bAllJudged = false;
+				continue;
+			}
 
 			if( tn.result.tns == TNS_None && iRow < iAvoidMineBeforeRow )
 			{
@@ -3308,7 +3529,23 @@ float Player::GetMaxStepDistanceSeconds()
 	fMax = std::max( fMax, GetWindowSeconds(TW_Roll) );
 	fMax = std::max( fMax, GetWindowSeconds(TW_Attack) );
 	fMax = std::max( fMax, GetWindowSeconds(TW_Checkpoint) );
+	// The new windows only count when the theme uses them, so other themes keep the old value.
+	if( INDEPENDENT_MISS_WINDOW )
+		fMax = std::max( fMax, GetWindowSeconds(TW_Miss) );
+	if( SHOCK_ARROW_JUDGMENT )
+	{
+		fMax = std::max( fMax, GetWindowSeconds(TW_ShockEarly) );
+		fMax = std::max( fMax, GetWindowSeconds(TW_ShockLate) );
+	}
 	float f = GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * fMax;
+	return f + m_fMaxInputLatencySeconds;
+}
+
+float Player::GetMissDistanceSeconds()
+{
+	if( !INDEPENDENT_MISS_WINDOW )
+		return GetMaxStepDistanceSeconds();
+	float f = GAMESTATE->m_SongOptions.GetCurrent().m_fMusicRate * GetWindowSeconds(TW_Miss);
 	return f + m_fMaxInputLatencySeconds;
 }
 
@@ -3327,7 +3564,7 @@ void Player::CacheAllUsedNoteSkins()
 		m_pNoteField->CacheAllUsedNoteSkins();
 }
 
-void Player::SetMineJudgment( TapNoteScore tns , int iTrack )
+void Player::SetMineJudgment( TapNoteScore tns , int iTrack, bool bShockArrow )
 {
 	if( m_bSendJudgmentAndComboMessages )
 	{
@@ -3335,6 +3572,9 @@ void Player::SetMineJudgment( TapNoteScore tns , int iTrack )
 		msg.SetParam( "Player", m_pPlayerState->m_PlayerNumber );
 		msg.SetParam( "TapNoteScore", tns );
 		msg.SetParam( "FirstTrack", iTrack );
+		// Only sent with ShockArrowJudgment: TNS_AvoidMine is O.K. and TNS_HitMine is N.G.
+		if( bShockArrow )
+			msg.SetParam( "ShockArrow", true );
 		MESSAGEMAN->Broadcast( msg );
 		if( m_pPlayerStageStats &&
 			( ( tns == TNS_AvoidMine && AVOID_MINE_INCREMENTS_COMBO ) ||

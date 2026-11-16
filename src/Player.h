@@ -118,6 +118,9 @@ public:
 	void SetPaused( bool bPaused ) { m_bPaused = bPaused; }
 
 	static float GetMaxStepDistanceSeconds();
+	/** @brief How old a note must be to become a miss: TimingWindowSecondsMiss with the
+	 * IndependentMissWindow metric, GetMaxStepDistanceSeconds() without it. */
+	static float GetMissDistanceSeconds();
 	static float GetWindowSeconds( TimingWindow tw );
 	const NoteData &GetNoteData() const { return m_NoteData; }
 	bool HasVisibleParts() const { return m_pNoteField != nullptr; }
@@ -144,6 +147,14 @@ public:
 protected:
 	void UpdateTapNotesMissedOlderThan( float fMissIfOlderThanThisBeat );
 	void UpdateJudgedRows();
+	/** @brief Is this row a shock arrow: a mine on every column? */
+	bool IsShockRow( int iRow ) const;
+	/** @brief Judge the shock arrows whose window is open (ShockArrowJudgment metric). */
+	void UpdateShockArrows();
+	/** @brief Give a whole shock arrow row its O.K. (TNS_AvoidMine) or N.G. (TNS_HitMine). */
+	void JudgeShockRow( int iRow, TapNoteScore tns );
+	/** @brief Is any column of this player held down? */
+	bool IsAnyColumnPressed();
 	void FlashGhostRow( int iRow );
 	void HandleTapRowScore( unsigned row );
 	void HandleHoldScore( const TapNote &tn );
@@ -153,7 +164,7 @@ protected:
 	void SendComboMessages( unsigned int iOldCombo, unsigned int iOldMissCombo );
 	void PlayKeysound( const TapNote &tn, TapNoteScore score );
 
-	void SetMineJudgment( TapNoteScore tns , int iTrack );
+	void SetMineJudgment( TapNoteScore tns , int iTrack, bool bShockArrow = false );
 	void SetJudgment( int iRow, int iFirstTrack, const TapNote &tn ) { SetJudgment( iRow, iFirstTrack, tn, tn.result.tns, tn.result.fTapNoteOffset ); }
 	void SetJudgment( int iRow, int iFirstTrack, const TapNote &tn, TapNoteScore tns, float fTapNoteOffset );	// -1 if no track as in TNS_Miss
 	void SetHoldJudgment( TapNote &tn, int iTrack );
@@ -219,6 +230,8 @@ protected:
 	NoteData::all_tracks_iterator *m_pIterUncrossedRows;
 	NoteData::all_tracks_iterator *m_pIterUnjudgedRows;
 	NoteData::all_tracks_iterator *m_pIterUnjudgedMineRows;
+	/** @brief Shock arrows before this row have all been judged (ShockArrowJudgment metric). */
+	int			m_iFirstUnjudgedShockRow;
 	unsigned int	m_iLastSeenCombo;
 	bool	m_bSeenComboYet;
 	JudgedRows		*m_pJudgedRows;

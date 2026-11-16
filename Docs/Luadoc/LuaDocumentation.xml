@@ -4093,7 +4093,7 @@ a,b = options:Boost(5)
 	</Function>
 	<Function name='Confusion' return='float, float' arguments='float value, float approach_speed'> </Function>
 	<Function name='Constant' return='float, float' arguments='float value, float approach_speed'>
-		The Constant appearance (a recreation of the modifier of DDR A3/WORLD).<br />
+		The Constant appearance (inspired by DDR WORLD).<br />
 		While it is on (1), arrows are only visible during the last ConstantTime seconds before they reach the receptors, whatever the scroll speed. It does not change the speed mod. It is decided per note from the real time left until it is hit, so BPM changes and stops are handled naturally: notes behind a BPM jump are shown before the jump reaches the receptors. Notes fade in with transparency only, without glow.<br />
 		In a mod string it is written as 'constant'.
 	</Function>
@@ -6891,6 +6891,29 @@ end
 		Possible values for the <code>ProfileSortOrder</code> preference.  The engine initially sorts profiles based on their <Link class='ENUM' function='ProfileType' />, showing <code>Guest</code> profiles first, then <code>Normal</code>, then <code>Test</code>.  <code>ProfileSortOrder</code> allows additional subsorts to be configured.<br />
 		<code>Priority</code> allows users to manually sort profiles using the <code>Priority=</code> key in each profile's Type.ini file.  New profiles are created with <code>Priority=0</code>.  A profile with <code>Priority=0</code> will appear before any profiles with <code>Priority=1</code> which will appear before any profiles with <code>Priority=2</code> and so on.<br />
 		<code>Recent</code> automatically sorts profiles in the order they are used, with the most recently used profile appearing first.
+	</Description>
+</Enum>
+<Enum name='TimingWindow'>
+	<Description>
+		The timing windows used to judge notes. Each one has a preference named <code>TimingWindowSeconds</code> followed by the window name (for example <code>TimingWindowSecondsW1</code> or <code>TimingWindowSecondsMiss</code>), in seconds, which a theme can change with <Link class='PrefsManager' function='SetPreference' />. <code>TimingWindowScale</code> and <code>TimingWindowAdd</code> apply to all of them.<br />
+		<code>Miss</code>, <code>ShockEarly</code> and <code>ShockLate</code> are only used when the theme turns on their judging mode with a metric in the <code>[Player]</code> group. Both metrics are <code>false</code> in <code>_fallback</code>, so themes that do not set them keep the older behavior:<br />
+		<code>IndependentMissWindow=true</code>: a note becomes a miss once it is older than <code>TimingWindowSecondsMiss</code> (default 0.180). Without it, a note becomes a miss once it is older than the largest of all the windows, <code>Hold</code> and <code>Roll</code> included, so those windows also move the miss. With it, <code>Hold</code> and <code>Roll</code> only set how long a hold or roll may be released.<br />
+		<code>ShockArrowJudgment=true</code>: a row with a mine on every column of the player (four in single, eight in double) is a shock arrow and is judged as a whole row. Its window opens <code>TimingWindowSecondsShockEarly</code> before the row and closes <code>TimingWindowSecondsShockLate</code> after it (default 0.090 each). The row is O.K. as soon as no column of the player is held inside the window, and N.G. if a column is still held when the window closes. Stepping on it is never judged, and computer players always get O.K.<br />
+		The row sends a single <code>Judgment</code> message with <code>ShockArrow = true</code>, <code>TapNoteScore = 'TapNoteScore_AvoidMine'</code> for O.K. or <code>'TapNoteScore_HitMine'</code> for N.G., <code>Player</code> and <code>FirstTrack = 0</code>. The life, score and combo change once per row (the <code>AvoidMineIncrementsCombo</code> and <code>MineHitIncrementsMissCombo</code> metrics still apply), and all the mines of the row get that result. Without the metric, each mine is judged and reported separately, with no <code>ShockArrow</code> parameter.
+<pre><code>
+-- In a theme script, together with the [Player] metrics above:
+PREFSMAN:SetPreference("TimingWindowSecondsMiss", 0.160)
+PREFSMAN:SetPreference("TimingWindowSecondsShockEarly", 0.034)
+PREFSMAN:SetPreference("TimingWindowSecondsShockLate", 0.084)
+
+-- In a judgment actor:
+JudgmentMessageCommand=function(self, params)
+	if params.ShockArrow then
+		local ok = params.TapNoteScore == "TapNoteScore_AvoidMine"
+		self:settext(ok and "O.K." or "N.G.")
+	end
+end
+</code></pre>
 	</Description>
 </Enum>
 <Enum name='VertAlign'>

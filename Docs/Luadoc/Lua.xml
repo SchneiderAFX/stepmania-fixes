@@ -2939,6 +2939,9 @@
 			<EnumValue name='&apos;TimingWindow_Hold&apos;' value='7'/>
 			<EnumValue name='&apos;TimingWindow_Roll&apos;' value='8'/>
 			<EnumValue name='&apos;TimingWindow_Checkpoint&apos;' value='9'/>
+			<EnumValue name='&apos;TimingWindow_Miss&apos;' value='10'/>
+			<EnumValue name='&apos;TimingWindow_ShockEarly&apos;' value='11'/>
+			<EnumValue name='&apos;TimingWindow_ShockLate&apos;' value='12'/>
 		</Enum>
 		<Enum name='TweenType'>
 			<EnumValue name='&apos;TweenType_Linear&apos;' value='0'/>

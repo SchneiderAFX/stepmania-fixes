@@ -287,7 +287,10 @@ static const char *TimingWindowNames[] = {
 	"Attack",
 	"Hold",
 	"Roll",
-	"Checkpoint"
+	"Checkpoint",
+	"Miss",
+	"ShockEarly",
+	"ShockLate"
 };
 XToString( TimingWindow );
 LuaXType( TimingWindow );
