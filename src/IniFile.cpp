@@ -67,7 +67,8 @@ bool IniFile::ReadFile( RageFileBasic &f )
 		}
 
 
-		if( line.empty() )
+		// Ignore empty lines and lines made only of whitespace (stray spaces/tabs).
+		if( line.find_first_not_of(" \t\r\n") == std::string::npos )
 			continue;
 		switch(line[0])
 		{
@@ -213,10 +214,7 @@ bool IniFile::RenameKey(const RString &from, const RString &to)
 
 	XNode* pNode = GetChild( from );
 	if( pNode == nullptr )
-	{
-		LOG->Warn("Key '%s' not found.", from.c_str());
-		return false;
-	}
+		return false; // nothing to rename; callers use this for optional backward-compat keys
 
 	pNode->SetName( to );
 	RenameChildInByName(pNode);
