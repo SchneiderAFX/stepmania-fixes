@@ -18,6 +18,7 @@
 #include "RageSurfaceUtils_Zoom.h"
 #include "SpecialFiles.h"
 #include "Banner.h"
+#include "RageThreads.h"
 
 #include <cmath>
 #include <condition_variable>
@@ -28,7 +29,6 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <thread>
 
 static Preference<bool> g_bPalettedImageCache( "PalettedImageCache", false );
 
@@ -86,8 +86,9 @@ static int g_iDemandRefcount = 0;
 // Prefetch requests (source path, cache file path); guarded by g_Mutex.
 static std::deque< std::pair<RString, RString> > g_PrefetchQueue;
 static std::condition_variable g_PrefetchCond;
-/* Never destroyed at exit: a joinable std::thread destroyed without a join ends the process. */
-static std::thread *g_pPrefetchThread = nullptr;
+/* A RageThread, so it's named in crash reports. Never destroyed at exit without
+ * StopPrefetchThread, since destroying it waits for the thread. */
+static RageThread *g_pPrefetchThread = nullptr;
 static bool g_bPrefetchStop = false;
 
 static std::set<RString> g_WarnedMissing;
@@ -152,14 +153,14 @@ static std::shared_ptr<RageSurface> StoreImage_Locked( const RString &sImagePath
 	return ret;
 }
 
-static void PrefetchThreadMain()
+static int PrefetchThreadMain( void * )
 {
 	std::unique_lock<std::mutex> lock( g_Mutex );
 	for(;;)
 	{
 		g_PrefetchCond.wait( lock, []{ return g_bPrefetchStop || !g_PrefetchQueue.empty(); } );
 		if( g_bPrefetchStop )
-			return;
+			return 0;
 
 		const std::pair<RString, RString> job = g_PrefetchQueue.front();
 		g_PrefetchQueue.pop_front();
@@ -342,7 +343,9 @@ void ImageCache::Prefetch( const std::vector<RString> &vsImagePaths )
 		if( g_pPrefetchThread == nullptr )
 		{
 			g_bPrefetchStop = false;
-			g_pPrefetchThread = new std::thread( PrefetchThreadMain );
+			g_pPrefetchThread = new RageThread;
+			g_pPrefetchThread->SetName( "Image cache prefetch" );
+			g_pPrefetchThread->Create( PrefetchThreadMain, nullptr );
 		}
 	}
 	g_PrefetchCond.notify_one();
@@ -358,7 +361,7 @@ void ImageCache::StopPrefetchThread()
 	g_PrefetchCond.notify_all();
 	if( g_pPrefetchThread != nullptr )
 	{
-		g_pPrefetchThread->join();
+		g_pPrefetchThread->Wait();
 		delete g_pPrefetchThread;
 		g_pPrefetchThread = nullptr;
 	}

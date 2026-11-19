@@ -178,6 +178,11 @@ bool FilenameDB::ResolvePath( RString &sPath )
 	RString ret = "";
 	const FileSet *fs = nullptr;
 
+	/* Keep m_Mutex locked while following dirp pointers: once it's unlocked,
+	 * another thread may expire or flush the FileSet that fs points to.  It's
+	 * only unlocked to call GetFileSet, which may have to populate a directory. */
+	bool bLocked = false;
+
 	static const RString slash("/");
 	for(;;)
 	{
@@ -186,9 +191,12 @@ bool FilenameDB::ResolvePath( RString &sPath )
 			break;
 
 		if( fs == nullptr )
-			fs = GetFileSet( ret );
-		else
-			m_Mutex.Lock(); /* for access to fs */
+		{
+			if( bLocked )
+				m_Mutex.Unlock();
+			fs = GetFileSet( ret ); /* returns with m_Mutex locked */
+			bLocked = true;
+		}
 
 		RString p = sPath.substr( iBegin, iSize );
 		ASSERT_M( p.size() != 1 || p[0] != '.', sPath ); // no .
@@ -205,9 +213,10 @@ bool FilenameDB::ResolvePath( RString &sPath )
 		ret += "/" + it->name;
 
 		fs = it->dirp;
-
-		m_Mutex.Unlock(); /* locked by GetFileSet */
 	}
+
+	if( bLocked )
+		m_Mutex.Unlock(); /* locked by GetFileSet */
 
 	if( sPath.size() && sPath[sPath.size()-1] == '/' )
 		sPath = ret + "/";
