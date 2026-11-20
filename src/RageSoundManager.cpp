@@ -144,7 +144,7 @@ float RageSoundManager::GetPlayLatency() const
 int RageSoundManager::GetDriverSampleRate() const
 {
 	if( m_pDriver == nullptr )
-		return 44100;
+		return 48000;
 
 	return m_pDriver->GetSampleRate();
 }
