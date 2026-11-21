@@ -1,20 +1,13 @@
-StepMania
+StepMania-fixes
 =========
 
-StepMania is an advanced cross-platform rhythm game for home and arcade use.
+A fork of StepMania (obviously lol) where i try to add features and fix long-lasting bugs (emphasis on TRY)
 
-[![Continuous integration](https://github.com/stepmania/stepmania/actions/workflows/ci.yml/badge.svg?branch=5_1-new)](https://github.com/stepmania/stepmania/actions/workflows/ci.yml)
-[![Build Status](https://travis-ci.org/stepmania/stepmania.svg?branch=master)](https://travis-ci.org/stepmania/stepmania)
-[![Build status](https://ci.appveyor.com/api/projects/status/uvoplsnyoats81r2?svg=true)](https://ci.appveyor.com/project/Nickito12/stepmania)
+##Building
 
-## Installation
-### From Packages
+### StepMania Windows Builder
 
-For those that do not wish to compile the game on their own and use a binary right away, be aware of the following issues:
-
-* Windows users are expected to have installed the [Microsoft Visual C++ x86 Redistributable for Visual Studio 2015](http://www.microsoft.com/en-us/download/details.aspx?id=48145) prior to running the game. For those on a 64-bit operating system, grab the x64 redistributable as well. Windows 7 is the minimum supported version.
-* Mac OS X users need to have Mac OS X 10.6.8 or higher to run StepMania.
-* Linux users should receive all they need from the package manager of their choice.
+you can use [my StepMania Windows Builder tool](https://github.com/SchneiderAFX/stepmania-windows-builder) to easily build the game (Windows Only)
 
 ### From Source
 
